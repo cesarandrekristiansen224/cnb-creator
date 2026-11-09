@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
-<title>CNB Creator – Samarbeid</title>
+<title>CNB Creator</title>
 <style>
 :root{
   --ink:#111; --muted:#6f6f6f; --line:#e7e7e7; --bg:#fff; --soft:#f6f6f4;
@@ -132,7 +132,7 @@ hr{border:0;border-top:1px solid var(--line);margin:22px 0}
 </style>
 </head>
 <body>
-<div id="app"><main><p class="empty">Laster …</p></main></div>
+<div id="app"><main><p class="empty">Laster / Loading …</p></main></div>
 <script type="module">
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/+esm';
 
@@ -145,18 +145,29 @@ const KEEP_DAYS = 30;
 
 const sb = createClient(SUPABASE_URL, SUPABASE_KEY, { auth: { flowType: 'implicit', persistSession: true, detectSessionInUrl: true } });
 
+function initLang(){
+  try{const s=localStorage.getItem('cnb_lang');if(s==='en'||s==='no')return s;}catch(e){}
+  const n=(navigator.language||'no').toLowerCase();
+  return /^(nb|nn|no)/.test(n)?'no':'en';
+}
 let db = { creators: [] };
-let state = { user: null, role: null, loading: true, busy: false, loginSent: null, tab: 'godkjenn', filter: 'alle', modal: null, flash: null, err: {}, upgrade: false, rejecting: null, payEdit: false, confirmDelete: null, fatal: null };
+let state = { user: null, role: null, loading: true, busy: false, loginSent: null, tab: 'godkjenn', filter: 'alle', modal: null, flash: null, err: {}, upgrade: false, rejecting: null, payEdit: false, confirmDelete: null, fatal: null, lang: initLang() };
 
 /* ---------- hjelpere ---------- */
+const t=(no,en)=>state.lang==='en'?en:no;
 function today(){const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10);}
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const kr=n=>Number(n||0).toLocaleString('nb-NO')+' kr';
-const dato=s=>s?new Date(s.slice(0,10)+'T12:00').toLocaleDateString('nb-NO',{day:'numeric',month:'short'}):'–';
+function money(n,cur){const v=Number(n||0);return (cur==='USD')?'$'+v.toLocaleString('en-US'):v.toLocaleString('nb-NO')+' kr';}
+function sumMoney(list){const by={};list.forEach(x=>{const c=x.d.currency||'NOK';by[c]=(by[c]||0)+Number(x.d.amount||0);});const parts=Object.keys(by).sort().map(c=>money(by[c],c));return parts.length?parts.join(' + '):money(0,'NOK');}
+const dato=s=>s?new Date(s.slice(0,10)+'T12:00').toLocaleDateString(state.lang==='en'?'en-GB':'nb-NO',{day:'numeric',month:'short'}):'–';
 function addDays(s,n){const d=new Date(s+'T12:00');d.setDate(d.getDate()+Number(n||0));return d.toISOString().slice(0,10);}
 const deadlineOf=d=>d.receivedAt?addDays(d.receivedAt,d.days):null;
 function daysLeft(d){const dl=deadlineOf(d);if(!dl)return null;return Math.round((new Date(dl+'T12:00')-new Date(today()+'T12:00'))/86400000);}
-function fristTxt(d){if(!d.receivedAt)return 'starter når produktet er mottatt';const n=daysLeft(d);return dato(deadlineOf(d))+(n<0?' (passert)':n===0?' (i dag)':` (${n} dager igjen)`);}
+function fristTxt(d){
+  if(!d.receivedAt)return t('starter når produktet er mottatt','starts when you receive the product');
+  const n=daysLeft(d);
+  return dato(deadlineOf(d))+(n<0?t(' (passert)',' (passed)'):n===0?t(' (i dag)',' (today)'):t(` (${n} dager igjen)`,` (${n} days left)`));
+}
 const isAdmin=()=>state.role==='admin';
 const byId=id=>db.creators.find(c=>c.id===id);
 const me=()=>db.creators[0];
@@ -165,23 +176,23 @@ const dv=(c,d)=>c.videos.filter(v=>v.dealId===d.id);
 function counts(c,d){const v=dv(c,d);const approved=v.filter(x=>x.status==='godkjent').length;const pending=v.filter(x=>x.status==='venter').length;return{approved,pending,missing:Math.max(0,d.videos-approved)};}
 const FINAL=['betalt','fullfort','avsluttet'];
 function status(c,d){
-  if(!d) return{key:'avsluttet',label:'Ingen avtale',tone:'muted',me:'Ingen avtale'};
+  if(!d) return{key:'avsluttet',label:t('Ingen avtale','No agreement'),tone:'muted',me:t('Ingen avtale','No agreement')};
   const k=counts(c,d);
-  if(d.closed) return{key:'avsluttet',label:'Avsluttet',tone:'muted',me:'Samarbeidet er avsluttet'};
-  if(d.paid) return{key:'betalt',label:'Betalt',tone:'ok',me:'Betalt – takk for samarbeidet!'};
-  if(d.done) return{key:'fullfort',label:'Fullført',tone:'muted',me:'Fullført'};
-  if(!d.acceptedAt) return{key:'avtale',label:'Ikke godtatt',tone:'muted',me:'Les og godta avtalen for å starte'};
-  if(!d.productSent) return{key:'produkt',label:'Ikke sendt',tone:'muted',me:'Vi sender produktet ditt snart'};
-  if(!d.receivedAt) return{key:'sendt',label:'Produkt på vei',tone:'muted',me:'Produktet ditt er på vei'};
+  if(d.closed) return{key:'avsluttet',label:t('Avsluttet','Ended'),tone:'muted',me:t('Samarbeidet er avsluttet','The collaboration has ended')};
+  if(d.paid) return{key:'betalt',label:t('Betalt','Paid'),tone:'ok',me:t('Betalt – takk for samarbeidet!','Paid – thanks for working with us!')};
+  if(d.done) return{key:'fullfort',label:t('Fullført','Completed'),tone:'muted',me:t('Fullført','Completed')};
+  if(!d.acceptedAt) return{key:'avtale',label:t('Ikke godtatt','Not accepted'),tone:'muted',me:t('Les og godta avtalen for å starte','Read and accept the agreement to start')};
+  if(!d.productSent) return{key:'produkt',label:t('Ikke sendt','Not shipped'),tone:'muted',me:t('Vi sender produktet ditt snart','We will ship your product soon')};
+  if(!d.receivedAt) return{key:'sendt',label:t('Produkt på vei','Product on its way'),tone:'muted',me:t('Produktet ditt er på vei','Your product is on its way')};
   if(k.approved<d.videos){
-    if(daysLeft(d)<0) return{key:'lager',label:'Frist passert',tone:'bad',me:'Fristen har gått ut – send inn videoene så fort du kan'};
-    return{key:'lager',label:'Lager videoer',tone:'warn',me:'Lag videoene dine'};
+    if(daysLeft(d)<0) return{key:'lager',label:t('Frist passert','Deadline passed'),tone:'bad',me:t('Fristen har gått ut – send inn videoene så fort du kan','The deadline has passed – please submit your videos as soon as you can')};
+    return{key:'lager',label:t('Lager videoer','Making videos'),tone:'warn',me:t('Lag videoene dine','Make your videos')};
   }
-  if(d.type==='betalt') return{key:'klar',label:'Klar for betaling',tone:'accent',me:'Alt er levert – betalingen kommer'};
-  return{key:'vurder',label:'Ferdig – vurder betalt',tone:'accent',me:'Levert! Vi ser på videoene dine'};
+  if(d.type==='betalt') return{key:'klar',label:t('Klar for betaling','Ready for payment'),tone:'accent',me:t('Alt er levert – betalingen kommer','Everything is delivered – payment is on its way')};
+  return{key:'vurder',label:t('Ferdig – vurder betalt','Done – consider paid'),tone:'accent',me:t('Levert! Vi ser på videoene dine','Delivered! We are reviewing your videos')};
 }
 const badge=s=>`<span class="badge t-${s.tone}">${esc(s.label)}</span>`;
-const vbadge=v=>v.status==='godkjent'?'<span class="badge t-ok">Godkjent</span>':v.status==='avvist'?'<span class="badge t-bad">Ikke godkjent</span>':'<span class="badge t-warn">Venter</span>';
+const vbadge=v=>v.status==='godkjent'?`<span class="badge t-ok">${t('Godkjent','Approved')}</span>`:v.status==='avvist'?`<span class="badge t-bad">${t('Ikke godkjent','Not approved')}</span>`:`<span class="badge t-warn">${t('Venter','Pending')}</span>`;
 const trackLink=c=>`${SHOP}/?utm_source=tiktok&utm_medium=influencer&utm_campaign=${c.slug}`;
 function platformOf(url){
   let u;try{u=new URL(url.trim());}catch(e){return null;}
@@ -200,18 +211,18 @@ const errFor=n=>state.err[n]?`<p class="err">${esc(state.err[n])}</p>`:'';
 function payTxt(d){if(d.type!=='betalt')return'';if(d.payMethod==='faktura')return'Sender faktura';if(d.payMethod==='bank')return'Bank: '+fmtAcc(d.account);return'Betalingsinfo mangler';}
 function niceError(e){
   const m=(e&&(e.message||e.error_description||e.msg))||String(e);
-  if(/Allerede sendt/i.test(m))return'Denne videoen er allerede sendt inn.';
-  if(/Ugyldig lenke/i.test(m))return'Dette ser ikke ut som en lenke fra TikTok, Instagram, YouTube eller Snapchat.';
-  if(/kontonummer/i.test(m))return'Kontonummeret ser feil ut.';
+  if(/Allerede sendt/i.test(m))return t('Denne videoen er allerede sendt inn.','This video has already been submitted.');
+  if(/Ugyldig lenke/i.test(m))return t('Dette ser ikke ut som en lenke fra TikTok, Instagram, YouTube eller Snapchat.','This does not look like a TikTok, Instagram, YouTube or Snapchat link.');
+  if(/kontonummer/i.test(m))return t('Kontonummeret ser feil ut.','The account number looks wrong.');
   if(/duplicate key.*email/i.test(m))return'Denne e-posten finnes allerede.';
-  if(/rate limit|too many/i.test(m))return'For mange forsøk. Vent litt og prøv igjen.';
-  if(/expired|invalid.*(otp|token)/i.test(m))return'Koden er feil eller har gått ut. Be om en ny.';
-  if(/Failed to fetch|NetworkError/i.test(m))return'Fikk ikke kontakt. Sjekk internett og prøv igjen.';
-  return'Noe gikk galt: '+m;
+  if(/rate limit|too many/i.test(m))return t('For mange forsøk. Vent litt og prøv igjen.','Too many attempts. Wait a little and try again.');
+  if(/expired|invalid.*(otp|token)/i.test(m))return t('Koden er feil eller har gått ut. Be om en ny.','The code is wrong or has expired. Ask for a new one.');
+  if(/Failed to fetch|NetworkError/i.test(m))return t('Fikk ikke kontakt. Sjekk internett og prøv igjen.','Could not connect. Check your internet and try again.');
+  return t('Noe gikk galt: ','Something went wrong: ')+m;
 }
 
 /* ---------- data ---------- */
-function mapDeal(r){return{id:r.id,creatorId:r.creator_id,type:r.type,product:r.product,videos:r.videos,amount:r.amount,days:r.days,rights:r.rights,acceptedAt:r.accepted_at,productSent:r.product_sent,tracking:r.tracking||'',receivedAt:r.received_at,startOnAccept:r.start_on_accept,payMethod:r.pay_method,account:r.account,paid:r.paid,paidAt:r.paid_at,done:r.done,closed:r.closed,createdAt:r.created_at};}
+function mapDeal(r){return{id:r.id,creatorId:r.creator_id,type:r.type,product:r.product,videos:r.videos,amount:r.amount,currency:r.currency||'NOK',days:r.days,rights:r.rights,acceptedAt:r.accepted_at,productSent:r.product_sent,tracking:r.tracking||'',receivedAt:r.received_at,startOnAccept:r.start_on_accept,payMethod:r.pay_method,account:r.account,paid:r.paid,paidAt:r.paid_at,done:r.done,closed:r.closed,createdAt:r.created_at};}
 function mapVideo(r){return{id:r.id,dealId:r.deal_id,creatorId:r.creator_id,url:r.url,platform:r.platform,status:r.status,reason:r.reason||'',ad:r.ad,at:r.created_at};}
 async function load(){
   const [c,d,v]=await Promise.all([
@@ -230,7 +241,7 @@ async function boot(session){
     if(a.error)throw a.error;
     state.role=a.data.length?'admin':'creator';
     await load();
-    if(state.role==='creator'&&!db.creators.length){state.role=null;state.fatal='Vi fant ingen avtale for '+state.user+'. Kontakt '+CONTACT+'.';}
+    if(state.role==='creator'&&!db.creators.length){state.role=null;state.fatal=t('Vi fant ingen avtale for ','We could not find an agreement for ')+state.user+t('. Kontakt ','. Contact ')+CONTACT+'.';}
   }catch(e){state.fatal=niceError(e);}
   state.loading=false;render();
 }
@@ -243,48 +254,49 @@ async function act(fn,okMsg){
 
 /* ---------- avtaletekst ---------- */
 function terms(d){
+  const amt=money(d.amount,d.currency);
   return [
-    `Du får <b>${esc(d.product)}</b>. Produktet er ditt å beholde.`,
-    `Du lager <b>${d.videos} videoer</b> innen <b>${d.days} dager</b> etter at du har fått produktet.`,
-    `Alle videoene skal <b>merkes som reklame</b>. Skriv «Reklame» i teksten, eller bruk merkingen i TikTok/Instagram. Dette er et krav i norsk lov, også når du bare får et produkt.`,
-    `Tagg <b>@cesarnoirblix</b> og bruk lenken din fra denne siden.`,
-    `Videoene skal ligge ute i minst <b>${KEEP_DAYS} dager</b>.`,
-    `CNB kan bruke videoene dine på våre egne kanaler og i <b>betalte annonser i ${d.rights} måneder</b>. Vi oppgir alltid at videoen er laget av deg.`,
+    t(`Du får <b>${esc(d.product)}</b>. Produktet er ditt å beholde.`,`You get <b>${esc(d.product)}</b>. The product is yours to keep.`),
+    t(`Du lager <b>${d.videos} videoer</b> innen <b>${d.days} dager</b> etter at du har fått produktet.`,`You make <b>${d.videos} videos</b> within <b>${d.days} days</b> after you receive the product.`),
+    t(`Alle videoene skal <b>merkes som reklame</b>. Skriv «Reklame» i teksten, eller bruk merkingen i TikTok/Instagram. Dette er et krav i norsk lov, også når du bare får et produkt.`,`All videos must be <b>labelled as an ad</b>. Write «Ad» in the caption, or use the paid partnership label in TikTok/Instagram. This is required by Norwegian law, even when you only receive a product.`),
+    t(`Tagg <b>@cesarnoirblix</b> og bruk lenken din fra denne siden.`,`Tag <b>@cesarnoirblix</b> and use your link from this page.`),
+    t(`Videoene skal ligge ute i minst <b>${KEEP_DAYS} dager</b>.`,`The videos must stay online for at least <b>${KEEP_DAYS} days</b>.`),
+    t(`CNB kan bruke videoene dine på våre egne kanaler og i <b>betalte annonser i ${d.rights} måneder</b>. Vi oppgir alltid at videoen er laget av deg.`,`CNB may use your videos on our own channels and in <b>paid ads for ${d.rights} months</b>. We always credit you as the creator.`),
     d.type==='betalt'
-      ? `Du får <b>${kr(d.amount)}</b> når alle videoene er godkjent. Du kan sende oss faktura, eller få pengene med bankoverføring.`
-      : `Dette er et gratis samarbeid. Liker vi videoene, kan vi tilby deg et betalt samarbeid.`,
-    `Vi lagrer bare det vi trenger for samarbeidet (navn, e-post, videolenker og eventuelt kontonummer). Du kan når som helst be oss slette det på ${CONTACT}.`
+      ? t(`Du får <b>${amt}</b> når alle videoene er godkjent. Du kan sende oss faktura, eller få pengene med bankoverføring.`,`You get <b>${amt}</b> when all videos are approved. You can send us an invoice, or get paid by bank transfer.`)
+      : t(`Dette er et gratis samarbeid. Liker vi videoene, kan vi tilby deg et betalt samarbeid.`,`This is an unpaid collaboration. If we like your videos, we may offer you a paid collaboration.`),
+    t(`Vi lagrer bare det vi trenger for samarbeidet (navn, e-post, videolenker og eventuelt kontonummer). Du kan når som helst be oss slette det på ${CONTACT}.`,`We only store what we need for the collaboration (name, email, video links and any bank details). You can ask us to delete it at any time at ${CONTACT}.`)
   ];
 }
 
 /* ---------- visninger ---------- */
 function topBar(sub){
   return `<header class="top"><div class="logo">CNB<small>${sub}</small></div>
-  ${state.user?`<div class="who">${esc(state.user)}<br><button class="link" data-a="logout">Logg ut</button></div>`:''}</header>`;
+  <div class="who">${state.user?`${esc(state.user)}<br>`:''}<button class="link" data-a="lang">${state.lang==='en'?'Norsk':'English'}</button>${state.user?` · <button class="link" data-a="logout">${t('Logg ut','Log out')}</button>`:''}</div></header>`;
 }
-const flash=()=>state.flash?`<div class="flash"><span>${esc(state.flash)}</span><button data-a="noflash" aria-label="Lukk">×</button></div>`:'';
+const flash=()=>state.flash?`<div class="flash"><span>${esc(state.flash)}</span><button data-a="noflash" aria-label="${t('Lukk','Close')}">×</button></div>`:'';
 
 function loginView(){
   if(state.loginSent){
     return `${topBar('Creator')}<main><div class="login">
-      <h1>Sjekk e-posten din</h1>
-      <p class="lead">Vi har sendt en e-post til <b>${esc(state.loginSent)}</b>. Trykk på lenken i e-posten, eller skriv inn koden her.</p>
+      <h1>${t('Sjekk e-posten din','Check your email')}</h1>
+      <p class="lead">${t('Vi har sendt en e-post til','We have sent an email to')} <b>${esc(state.loginSent)}</b>. ${t('Trykk på lenken i e-posten, eller skriv inn koden her.','Tap the link in the email, or enter the code here.')}</p>
       <form data-form="code" novalidate>
-        <div class="field"><label for="code">Kode fra e-posten</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
+        <div class="field"><label for="code">${t('Kode fra e-posten','Code from the email')}</label><input id="code" name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="10" placeholder="123456"></div>
         ${errFor('code')}
-        <button class="btn full" type="submit">Logg inn</button>
+        <button class="btn full" type="submit">${t('Logg inn','Log in')}</button>
       </form>
-      <p class="hint">Finner du ikke e-posten? Sjekk søppelpost.</p>
-      <p class="small" style="margin-top:14px"><button class="link" data-a="back">Bruk en annen e-post</button></p>
+      <p class="hint">${t('Finner du ikke e-posten? Sjekk søppelpost.','Can’t find the email? Check your spam folder.')}</p>
+      <p class="small" style="margin-top:14px"><button class="link" data-a="back">${t('Bruk en annen e-post','Use another email')}</button></p>
     </div></main>`;
   }
   return `${topBar('Creator')}<main><div class="login">
-    <h1>Samarbeid med CNB</h1>
-    <p class="lead">Logg inn med e-posten din for å se avtalen din, levere videoer og følge med på betaling. Du trenger ikke passord.</p>
+    <h1>${t('Samarbeid med CNB','Collaborate with CNB')}</h1>
+    <p class="lead">${t('Logg inn med e-posten din for å se avtalen din, levere videoer og følge med på betaling. Du trenger ikke passord.','Log in with your email to see your agreement, submit videos and follow your payment. No password needed.')}</p>
     <form data-form="login" novalidate>
-      <div class="field"><label for="em">E-post</label><input id="em" name="email" type="email" placeholder="navn@eksempel.no" autocomplete="email"></div>
+      <div class="field"><label for="em">${t('E-post','Email')}</label><input id="em" name="email" type="email" placeholder="${t('navn@eksempel.no','name@example.com')}" autocomplete="email"></div>
       ${errFor('login')}
-      <button class="btn full" type="submit">${state.busy?'Sender …':'Send innloggingslenke'}</button>
+      <button class="btn full" type="submit">${state.busy?t('Sender …','Sending …'):t('Send innloggingslenke','Send login link')}</button>
     </form>
   </div></main>`;
 }
@@ -294,100 +306,103 @@ function slots(d,k){let h='';for(let i=0;i<d.videos;i++)h+=`<div class="slot ${i
 function stepsHtml(d,s){
   const order=['avtale','produkt','sendt','lager',['vurder','klar'],FINAL];
   const idx=order.findIndex(o=>Array.isArray(o)?o.includes(s.key):o===s.key)-1;
-  const names=['Avtale','Sendt','Mottatt','Videoer',d.type==='betalt'?'Betaling':'Vurdering'];
+  const names=[t('Avtale','Agreement'),t('Sendt','Shipped'),t('Mottatt','Received'),t('Videoer','Videos'),d.type==='betalt'?t('Betaling','Payment'):t('Vurdering','Review')];
   return `<div class="steps">${names.map((n,i)=>`<div class="step ${i<=idx?'done':i===idx+1?'now':''}">${i+1}. ${n}</div>`).join('')}</div>`;
 }
 
 function agreementCard(c,d){
-  return `<div class="card strong"><h2>${c.deals.length>1?'Ny avtale med CNB':'Din avtale med CNB'}</h2>
-    <ol class="terms">${terms(d).map(t=>`<li>${t}</li>`).join('')}</ol>
+  return `<div class="card strong"><h2>${c.deals.length>1?t('Ny avtale med CNB','New agreement with CNB'):t('Din avtale med CNB','Your agreement with CNB')}</h2>
+    <ol class="terms">${terms(d).map(x=>`<li>${x}</li>`).join('')}</ol>
     <form data-form="accept" novalidate>
-      <label class="check"><input type="checkbox" name="a1"> Jeg har lest og godtar avtalen.</label>
-      <label class="check"><input type="checkbox" name="a2"> Jeg er over 18 år, eller jeg har lov fra en forelder/foresatt.</label>
+      <label class="check"><input type="checkbox" name="a1"> ${t('Jeg har lest og godtar avtalen.','I have read and accept the agreement.')}</label>
+      <label class="check"><input type="checkbox" name="a2"> ${t('Jeg er over 18 år, eller jeg har lov fra en forelder/foresatt.','I am over 18, or I have permission from a parent/guardian.')}</label>
       ${errFor('accept')}
-      <button class="btn" type="submit">Godta avtalen</button>
+      <button class="btn" type="submit">${t('Godta avtalen','Accept agreement')}</button>
     </form></div>`;
 }
 
 function payCard(c,d){
   if(d.type!=='betalt'||d.paid||d.closed||d.done)return'';
+  const amt=money(d.amount,d.currency);
   if(d.payMethod&&!state.payEdit){
-    return `<div class="card"><h2>Betaling – ${kr(d.amount)}</h2>
+    return `<div class="card"><h2>${t('Betaling','Payment')} – ${amt}</h2>
       ${d.payMethod==='faktura'
-        ?`<p class="small" style="margin-top:0">Du sender faktura. Send den til <b>${CONTACT}</b> når alle videoene er godkjent. Fakturaen skal til <b>CNB AS</b>. Skriv navnet ditt og «CNB Creator» på den.</p>`
-        :`<p class="small" style="margin-top:0">Vi overfører pengene til kontonummer <b>${esc(fmtAcc(d.account))}</b> når alle videoene er godkjent.</p>`}
-      <button class="link" data-a="payedit">Endre</button></div>`;
+        ?`<p class="small" style="margin-top:0">${t(`Du sender faktura. Send den til <b>${CONTACT}</b> når alle videoene er godkjent. Fakturaen skal til <b>CNB AS</b>. Skriv navnet ditt og «CNB Creator» på den.`,`You send an invoice. Send it to <b>${CONTACT}</b> when all videos are approved. Address it to <b>CNB AS</b> and write your name and «CNB Creator» on it.`)}</p>`
+        :`<p class="small" style="margin-top:0">${t('Vi overfører pengene til kontonummer','We will transfer the money to account number')} <b>${esc(fmtAcc(d.account))}</b> ${t('når alle videoene er godkjent.','when all videos are approved.')}</p>`}
+      <button class="link" data-a="payedit">${t('Endre','Change')}</button></div>`;
   }
-  return `<div class="card strong"><h2>Hvordan vil du få betalt? (${kr(d.amount)})</h2>
+  const nok=(d.currency||'NOK')==='NOK';
+  return `<div class="card strong"><h2>${t('Hvordan vil du få betalt?','How do you want to be paid?')} (${amt})</h2>
     <form data-form="paymethod" novalidate>
-      <label class="check"><input type="radio" name="method" value="faktura" ${d.payMethod==='faktura'?'checked':''}> Jeg sender faktura til CNB</label>
-      <label class="check"><input type="radio" name="method" value="bank" ${d.payMethod!=='faktura'?'checked':''}> Bankoverføring til kontoen min</label>
-      <div class="field"><label for="acc">Kontonummer (bare ved bankoverføring)</label><input id="acc" name="account" inputmode="numeric" placeholder="1234.56.78903" value="${esc(d.account?fmtAcc(d.account):'')}"></div>
+      <label class="check"><input type="radio" name="method" value="faktura" ${d.payMethod==='faktura'||!nok?'checked':''}> ${t('Jeg sender faktura til CNB','I will send an invoice to CNB')}</label>
+      ${nok?`<label class="check"><input type="radio" name="method" value="bank" ${d.payMethod!=='faktura'?'checked':''}> ${t('Bankoverføring til kontoen min','Bank transfer to my account')}</label>
+      <div class="field"><label for="acc">${t('Norsk kontonummer (bare ved bankoverføring)','Norwegian account number (bank transfer only)')}</label><input id="acc" name="account" inputmode="numeric" placeholder="1234.56.78903" value="${esc(d.account?fmtAcc(d.account):'')}"></div>`
+      :`<p class="hint" style="margin:0 0 14px">${t(`Send fakturaen til ${CONTACT} med bankinformasjonen din, så betaler vi i USD.`,`Send the invoice to ${CONTACT} with your bank details (e.g. IBAN/SWIFT or ACH), and we will pay you in USD.`)}</p>`}
       ${errFor('pay')}
-      <button class="btn" type="submit">Lagre</button>
+      <button class="btn" type="submit">${t('Lagre','Save')}</button>
     </form></div>`;
 }
 
 function creatorView(){
   const c=me(); const d=deal(c),k=counts(c,d),s=status(c,d);
-  const head=`${topBar('Creator')}<main>${flash()}<h1>Hei ${esc(c.name.split(' ')[0])}</h1><p class="lead">${badge(s)} &nbsp;${esc(s.me)}</p>${stepsHtml(d,s)}`;
-  const foot=`<p class="small muted">Spørsmål? Send en e-post til <a href="mailto:${CONTACT}">${CONTACT}</a></p></main>`;
+  const head=`${topBar('Creator')}<main>${flash()}<h1>${t('Hei','Hi')} ${esc(c.name.split(' ')[0])}</h1><p class="lead">${badge(s)} &nbsp;${esc(s.me)}</p>${stepsHtml(d,s)}`;
+  const foot=`<p class="small muted">${t('Spørsmål? Send en e-post til','Questions? Email')} <a href="mailto:${CONTACT}">${CONTACT}</a></p></main>`;
   if(s.key==='avtale') return head+agreementCard(c,d)+foot;
   const canSubmit=['lager','vurder','klar'].includes(s.key);
   const bigNum=['produkt','sendt','lager'].includes(s.key)?k.missing:0;
   const vids=dv(c,d).slice().reverse();
   const older=c.deals.slice(0,-1);
   return head+`
-    ${s.key==='sendt'?`<div class="card strong"><h2>Har du fått produktet?</h2>
-      <p class="small" style="margin-top:0">Trykk når pakken har kommet. Da starter fristen, og du har <b>${d.days} dager</b> på å lage ${d.videos} videoer.</p>
-      ${d.tracking?`<p class="small muted">Sporingsnummer: ${esc(d.tracking)}</p>`:''}
-      <button class="btn" data-a="received">Jeg har fått produktet</button></div>`:''}
+    ${s.key==='sendt'?`<div class="card strong"><h2>${t('Har du fått produktet?','Have you received the product?')}</h2>
+      <p class="small" style="margin-top:0">${t(`Trykk når pakken har kommet. Da starter fristen, og du har <b>${d.days} dager</b> på å lage ${d.videos} videoer.`,`Tap when the package has arrived. The deadline starts then, and you have <b>${d.days} days</b> to make ${d.videos} videos.`)}</p>
+      ${d.tracking?`<p class="small muted">${t('Sporingsnummer','Tracking number')}: ${esc(d.tracking)}</p>`:''}
+      <button class="btn" data-a="received">${t('Jeg har fått produktet','I have received the product')}</button></div>`:''}
     ${payCard(c,d)}
     <div class="grid g2">
       <div class="card">
-        <h2>Videoer</h2>
-        <div class="big"><b>${bigNum}</b><span>${bigNum===1?'video igjen':'videoer igjen'}${d.type==='betalt'&&bigNum>0?' før betaling':''}</span></div>
+        <h2>${t('Videoer','Videos')}</h2>
+        <div class="big"><b>${bigNum}</b><span>${bigNum===1?t('video igjen','video left'):t('videoer igjen','videos left')}${d.type==='betalt'&&bigNum>0?t(' før betaling',' before payment'):''}</span></div>
         ${slots(d,k)}
-        <div class="legend"><span><i style="background:var(--ink)"></i>${k.approved} godkjent</span><span><i style="background:#aaa"></i>${k.pending} venter</span><span>av ${d.videos}</span></div>
+        <div class="legend"><span><i style="background:var(--ink)"></i>${k.approved} ${t('godkjent','approved')}</span><span><i style="background:#aaa"></i>${k.pending} ${t('venter','pending')}</span><span>${t('av','of')} ${d.videos}</span></div>
       </div>
       <div class="card soft">
-        <h2>Din avtale</h2>
+        <h2>${t('Din avtale','Your agreement')}</h2>
         <dl class="kv">
-          <dt>Du får</dt><dd>${esc(d.product)}</dd>
-          <dt>Du lager</dt><dd>${d.videos} videoer</dd>
-          <dt>Betaling</dt><dd>${d.type==='betalt'?kr(d.amount):'Gratis produkt'}</dd>
-          <dt>Frist</dt><dd>${esc(fristTxt(d))}</dd>
+          <dt>${t('Du får','You get')}</dt><dd>${esc(d.product)}</dd>
+          <dt>${t('Du lager','You make')}</dt><dd>${d.videos} ${t('videoer','videos')}</dd>
+          <dt>${t('Betaling','Payment')}</dt><dd>${d.type==='betalt'?money(d.amount,d.currency):t('Gratis produkt','Free product')}</dd>
+          <dt>${t('Frist','Deadline')}</dt><dd>${esc(fristTxt(d))}</dd>
         </dl>
-        <details><summary>Se hele avtalen (godtatt ${dato(d.acceptedAt)})</summary><ol class="terms">${terms(d).map(t=>`<li>${t}</li>`).join('')}</ol></details>
+        <details><summary>${t('Se hele avtalen','See the full agreement')} (${t('godtatt','accepted')} ${dato(d.acceptedAt)})</summary><ol class="terms">${terms(d).map(x=>`<li>${x}</li>`).join('')}</ol></details>
       </div>
     </div>
     <div class="card">
-      <h2>Lever en video</h2>
+      <h2>${t('Lever en video','Submit a video')}</h2>
       ${canSubmit?`<form data-form="submitVideo" novalidate>
-        <div class="field"><label for="url">Lenke til videoen</label><input id="url" name="url" inputmode="url" placeholder="https://www.tiktok.com/@deg/video/..."></div>
-        <label class="check"><input type="checkbox" name="ad"> Videoen er merket som <b>&nbsp;reklame&nbsp;</b> og tagger <b>&nbsp;@cesarnoirblix</b>.</label>
+        <div class="field"><label for="url">${t('Lenke til videoen','Link to the video')}</label><input id="url" name="url" inputmode="url" placeholder="https://www.tiktok.com/@you/video/..."></div>
+        <label class="check"><input type="checkbox" name="ad"> ${t('Videoen er merket som <b>&nbsp;reklame&nbsp;</b> og tagger <b>&nbsp;@cesarnoirblix</b>.','The video is labelled as an <b>&nbsp;ad&nbsp;</b> and tags <b>&nbsp;@cesarnoirblix</b>.')}</label>
         ${errFor('video')}
-        <button class="btn" type="submit">Send inn video</button>
-        <p class="hint">Lenker fra TikTok, Instagram, YouTube eller Snapchat. Videoen teller når vi har godkjent den.</p>
-      </form>`:`<p class="empty">${['produkt','sendt'].includes(s.key)?'Du kan levere videoer når du har fått produktet.':'Denne avtalen er ferdig. Du trenger ikke levere flere videoer.'}</p>`}
+        <button class="btn" type="submit">${t('Send inn video','Submit video')}</button>
+        <p class="hint">${t('Lenker fra TikTok, Instagram, YouTube eller Snapchat. Videoen teller når vi har godkjent den.','Links from TikTok, Instagram, YouTube or Snapchat. The video counts once we have approved it.')}</p>
+      </form>`:`<p class="empty">${['produkt','sendt'].includes(s.key)?t('Du kan levere videoer når du har fått produktet.','You can submit videos once you have received the product.'):t('Denne avtalen er ferdig. Du trenger ikke levere flere videoer.','This agreement is finished. You don’t need to submit more videos.')}</p>`}
     </div>
     <div class="card">
-      <h2>Dine videoer</h2>
-      <div class="list">${vids.length?vids.map(v=>videoRow(v,false,c.id)).join(''):'<p class="empty">Ingen videoer ennå.</p>'}</div>
+      <h2>${t('Dine videoer','Your videos')}</h2>
+      <div class="list">${vids.length?vids.map(v=>videoRow(v,false,c.id)).join(''):`<p class="empty">${t('Ingen videoer ennå.','No videos yet.')}</p>`}</div>
     </div>
     <div class="grid g2">
-      <div class="card soft"><h2>Huskeliste for videoer</h2><ul class="rules">
-        <li>Merk videoen som <b>reklame</b></li>
-        <li>Tagg <b>@cesarnoirblix</b></li>
-        <li>Vis produktet godt</li>
-        <li>La videoen ligge ute i minst ${KEEP_DAYS} dager</li>
+      <div class="card soft"><h2>${t('Huskeliste for videoer','Video checklist')}</h2><ul class="rules">
+        <li>${t('Merk videoen som <b>reklame</b>','Label the video as an <b>ad</b>')}</li>
+        <li>${t('Tagg <b>@cesarnoirblix</b>','Tag <b>@cesarnoirblix</b>')}</li>
+        <li>${t('Vis produktet godt','Show the product clearly')}</li>
+        <li>${t(`La videoen ligge ute i minst ${KEEP_DAYS} dager`,`Keep the video online for at least ${KEEP_DAYS} days`)}</li>
       </ul></div>
-      <div class="card"><h2>Din lenke</h2>
-        <p class="small muted" style="margin-top:0">Bruk denne i bio og videoer. Da ser vi hvem som kom fra deg.</p>
-        <div class="copybox"><code>${esc(trackLink(c))}</code><button data-a="copy" data-v="${esc(trackLink(c))}">Kopier</button></div>
+      <div class="card"><h2>${t('Din lenke','Your link')}</h2>
+        <p class="small muted" style="margin-top:0">${t('Bruk denne i bio og videoer. Da ser vi hvem som kom fra deg.','Use this in your bio and videos. That way we can see who came from you.')}</p>
+        <div class="copybox"><code>${esc(trackLink(c))}</code><button data-a="copy" data-v="${esc(trackLink(c))}">${t('Kopier','Copy')}</button></div>
       </div>
     </div>
-    ${older.length?`<div class="card"><h2>Tidligere avtaler</h2><div class="list">${older.map(o=>{const ok=counts(c,o);return `<div class="item"><div><div class="url">${esc(o.product)}</div><div class="meta">${ok.approved}/${o.videos} videoer · ${o.type==='betalt'?kr(o.amount):'Gratis produkt'}</div></div>${badge(status(c,o))}</div>`;}).join('')}</div></div>`:''}
+    ${older.length?`<div class="card"><h2>${t('Tidligere avtaler','Previous agreements')}</h2><div class="list">${older.map(o=>{const ok=counts(c,o);return `<div class="item"><div><div class="url">${esc(o.product)}</div><div class="meta">${ok.approved}/${o.videos} ${t('videoer','videos')} · ${o.type==='betalt'?money(o.amount,o.currency):t('Gratis produkt','Free product')}</div></div>${badge(status(c,o))}</div>`;}).join('')}</div></div>`:''}
   `+foot;
 }
 
@@ -402,14 +417,14 @@ function videoRow(v,admin,cid){
   const safeUrl=/^https?:\/\//i.test(v.url)?v.url:'#';
   const row=`<div class="item"><div>
       <div class="url"><span class="plat">${esc(v.platform)}</span><a href="${esc(safeUrl)}" target="_blank" rel="noopener noreferrer">${esc(v.url.replace(/^https?:\/\/(www\.)?/,''))}</a></div>
-      <div class="meta">${admin?esc(byId(cid).name)+' · ':''}Sendt inn ${dato(v.at)}${v.ad?'<span class="okmark">✓ Merket reklame</span>':''}</div>
-      ${v.status==='avvist'&&v.reason?`<div class="reason">Grunn: ${esc(v.reason)}${admin?'':' – fiks det og send inn på nytt.'}</div>`:''}
+      <div class="meta">${admin?esc(byId(cid).name)+' · ':''}${t('Sendt inn','Submitted')} ${dato(v.at)}${v.ad?`<span class="okmark">✓ ${t('Merket reklame','Labelled as ad')}</span>`:''}</div>
+      ${v.status==='avvist'&&v.reason?`<div class="reason">${t('Grunn','Reason')}: ${esc(v.reason)}${admin?'':t(' – fiks det og send inn på nytt.',' – fix it and submit again.')}</div>`:''}
     </div>
     <div class="row end">${vbadge(v)}${actions}</div></div>`;
   if(admin&&state.rejecting===v.id){
     return row+`<div class="rejectbox"><form data-form="reject" data-c="${cid}" data-v="${v.id}" novalidate>
       <div class="field"><label>Hvorfor avviser dere videoen?</label><select name="reason">${REASONS.map(r=>`<option>${esc(r)}</option>`).join('')}<option value="">Annet (skriv under)</option></select></div>
-      <div class="field"><input name="extra" placeholder="Ekstra beskjed (valgfritt)"></div>
+      <div class="field"><input name="extra" placeholder="Ekstra beskjed (valgfritt, gjerne på engelsk for engelske creators)"></div>
       ${errFor('reject')}
       <div class="row"><button class="btn sm badfill" type="submit">Avvis</button><button class="btn sm ghost" type="button" data-a="rejectcancel">Avbryt</button></div>
     </form></div>`;
@@ -432,8 +447,8 @@ function adminView(){
   const toReview=all.filter(x=>x.s.key==='vurder');
   const active=all.filter(x=>!FINAL.includes(x.s.key));
   const paidList=[];db.creators.forEach(c=>c.deals.forEach(d=>{if(d.paid)paidList.push({c,d});}));
-  const paidSum=paidList.reduce((a,x)=>a+Number(x.d.amount||0),0);
-  const readySum=ready.reduce((a,x)=>a+Number(x.d.amount||0),0);
+  const paidSum=sumMoney(paidList);
+  const readySum=sumMoney(ready);
   const tabs=[['godkjenn','Til godkjenning',pending.length],['samarbeid','Samarbeid',0],['betaling','Betalinger',ready.length]];
   let body='';
   if(state.tab==='godkjenn'){
@@ -450,13 +465,13 @@ function adminView(){
       <button class="btn sm" data-a="new">+ Ny samarbeidspartner</button></div>
       ${list.length?list.map(x=>{const w=warningsFor(x.c,x.d,x.s);return `<button class="crow" data-a="open" data-c="${x.c.id}">
         <div><div class="name">${esc(x.c.name)}</div><div class="small muted">${esc(x.c.handle)} · ${esc(x.c.email)}</div>${w.length?`<div class="warns">! ${esc(w.join(' · '))}</div>`:''}</div>
-        <div><div class="small">${esc(x.d.product)}</div><div class="small muted">${x.d.type==='betalt'?kr(x.d.amount):'Gratis produkt'}${FINAL.includes(x.s.key)?'':' · frist '+esc(fristTxt(x.d))}</div></div>
+        <div><div class="small">${esc(x.d.product)}</div><div class="small muted">${x.d.type==='betalt'?money(x.d.amount,x.d.currency):'Gratis produkt'}${FINAL.includes(x.s.key)?'':' · frist '+esc(fristTxt(x.d))}</div></div>
         <div><div class="small"><b>${x.k.approved}/${x.d.videos}</b> videoer${x.k.pending?` · ${x.k.pending} venter`:''}</div><div class="mini"><i style="width:${Math.min(100,x.k.approved/x.d.videos*100)}%"></i></div></div>
         <div>${badge(x.s)}</div></button>`;}).join(''):'<p class="empty">Ingen i denne listen.</p>'}`;
   } else {
-    body=`<div class="card"><h2>Klar for betaling (${kr(readySum)})</h2><div class="list">${ready.length?ready.map(x=>`<div class="item"><div><div class="url"><b>${esc(x.c.name)}</b> · ${kr(x.d.amount)}</div><div class="meta">${x.k.approved}/${x.d.videos} videoer godkjent · ${esc(payTxt(x.d))}</div></div><div class="row end"><button class="btn sm ghost" data-a="open" data-c="${x.c.id}">Se</button><button class="btn sm" data-a="pay" data-c="${x.c.id}">Marker betalt</button></div></div>`).join(''):'<p class="empty">Ingen venter på betaling.</p>'}</div>
-      <p class="hint">Faktura: vent til fakturaen har kommet, betal den, og før den i Fiken. Bankoverføring uten faktura: spør regnskapsføreren hvordan det skal føres.</p></div>
-    <div class="card"><h2>Betalt (${kr(paidSum)})</h2><div class="list">${paidList.length?paidList.map(x=>`<div class="item"><div><div class="url"><b>${esc(x.c.name)}</b> · ${kr(x.d.amount)}</div><div class="meta">Betalt ${dato(x.d.paidAt)} · ${x.d.videos} videoer · ${esc(payTxt(x.d))}</div></div><span class="badge t-ok">Betalt</span></div>`).join(''):'<p class="empty">Ingen betalinger ennå.</p>'}</div></div>`;
+    body=`<div class="card"><h2>Klar for betaling (${readySum})</h2><div class="list">${ready.length?ready.map(x=>`<div class="item"><div><div class="url"><b>${esc(x.c.name)}</b> · ${money(x.d.amount,x.d.currency)}</div><div class="meta">${x.k.approved}/${x.d.videos} videoer godkjent · ${esc(payTxt(x.d))}</div></div><div class="row end"><button class="btn sm ghost" data-a="open" data-c="${x.c.id}">Se</button><button class="btn sm" data-a="pay" data-c="${x.c.id}">Marker betalt</button></div></div>`).join(''):'<p class="empty">Ingen venter på betaling.</p>'}</div>
+      <p class="hint">Faktura: vent til fakturaen har kommet, betal den, og før den i Fiken. Bankoverføring uten faktura: spør regnskapsføreren hvordan det skal føres. Betalinger i USD føres i NOK etter kursen på betalingsdagen.</p></div>
+    <div class="card"><h2>Betalt (${paidSum})</h2><div class="list">${paidList.length?paidList.map(x=>`<div class="item"><div><div class="url"><b>${esc(x.c.name)}</b> · ${money(x.d.amount,x.d.currency)}</div><div class="meta">Betalt ${dato(x.d.paidAt)} · ${x.d.videos} videoer · ${esc(payTxt(x.d))}</div></div><span class="badge t-ok">Betalt</span></div>`).join(''):'<p class="empty">Ingen betalinger ennå.</p>'}</div></div>`;
   }
   return `${topBar('Creator · Admin')}<main>${flash()}
     <div class="spread"><h1>Samarbeid</h1><button class="link" data-a="refresh">Oppdater</button></div>
@@ -465,7 +480,7 @@ function adminView(){
       <div class="stat"><b>${active.length}</b><span>Aktive samarbeid</span></div>
       <div class="stat"><b>${pending.length}</b><span>Videoer venter</span></div>
       <div class="stat"><b>${ready.length}</b><span>Klar for betaling</span></div>
-      <div class="stat"><b>${kr(paidSum)}</b><span>Betalt totalt</span></div>
+      <div class="stat"><b style="font-size:${paidSum.length>12?'18px':'28px'}">${paidSum}</b><span>Betalt totalt</span></div>
     </div>
     <div class="tabs">${tabs.map(([k,l,n])=>`<button class="${state.tab===k?'on':''}" data-a="tab" data-v="${k}">${l}${n?`<span class="count">${n}</span>`:''}</button>`).join('')}</div>
     ${body}
@@ -473,14 +488,15 @@ function adminView(){
 }
 
 function dealFields(d){
-  d=d||{type:'produkt',product:'',videos:3,amount:0,days:21,rights:12};
+  d=d||{type:'produkt',product:'',videos:3,amount:0,currency:'NOK',days:21,rights:12};
+  const cur=d.currency||'NOK';
   return `<div class="field"><label>Type samarbeid</label><select name="type">
       <option value="produkt" ${d.type==='produkt'?'selected':''}>Gratis produkt (test)</option>
       <option value="betalt" ${d.type==='betalt'?'selected':''}>Betalt samarbeid</option></select></div>
     <div class="field"><label>Produkt de får</label><input name="product" value="${esc(d.product)}" placeholder="F.eks. Hettegenser – burgunder (L)"></div>
     <div class="grid g2" style="gap:12px">
       <div class="field"><label>Antall videoer</label><input name="videos" type="number" min="1" max="50" value="${d.videos}"></div>
-      <div class="field"><label>Betaling (kr)</label><input name="amount" type="number" min="0" step="50" value="${d.amount||0}"><p class="hint">Bare for betalt samarbeid.</p></div>
+      <div class="field"><label>Betaling</label><div class="row" style="flex-wrap:nowrap"><input name="amount" type="number" min="0" step="50" value="${d.amount||0}"><select name="currency" style="width:auto"><option value="NOK" ${cur==='NOK'?'selected':''}>NOK</option><option value="USD" ${cur==='USD'?'selected':''}>USD</option></select></div><p class="hint">Bare for betalt samarbeid.</p></div>
       <div class="field"><label>Dager til å lage videoene</label><input name="days" type="number" min="1" max="120" value="${d.days||21}"><p class="hint">Fra dagen de får produktet.</p></div>
       <div class="field"><label>Bruksrett (måneder)</label><input name="rights" type="number" min="1" max="60" value="${d.rights||12}"><p class="hint">Hvor lenge dere kan bruke videoene i annonser.</p></div>
     </div>`;
@@ -490,7 +506,7 @@ function modalView(){
   if(!state.modal)return'';
   if(state.modal.type==='new'){
     return `<div class="bg" data-a="closebg"><div class="panel"><button class="x" data-a="close" aria-label="Lukk">×</button>
-      <h1>Ny samarbeidspartner</h1><p class="lead">Når de er lagt til, kan de logge inn med denne e-posten. Send dem lenken til siden.</p>
+      <h1>Ny samarbeidspartner</h1><p class="lead">Når de er lagt til, kan de logge inn med denne e-posten. Send dem lenken cesarnoirblix.com/creator. De kan velge norsk eller engelsk på siden.</p>
       <form data-form="newCreator" novalidate>
         <div class="field"><label>Navn</label><input name="name"></div>
         <div class="field"><label>E-post</label><input name="email" type="email"></div>
@@ -510,7 +526,7 @@ function modalView(){
       <div class="field"><label>Sporingsnummer (valgfritt)</label><input name="tracking" placeholder="F.eks. 70712345678"></div>
       <button class="btn" type="submit">Marker produkt som sendt</button></form>`;
   if(s.key==='sendt') actions+=`<button class="btn" data-a="recvAdmin" data-c="${c.id}">Marker som mottatt</button>`;
-  if(s.key==='klar') actions+=`<button class="btn" data-a="pay" data-c="${c.id}">Marker betalt (${kr(d.amount)})</button>`;
+  if(s.key==='klar') actions+=`<button class="btn" data-a="pay" data-c="${c.id}">Marker betalt (${money(d.amount,d.currency)})</button>`;
   if(['vurder','betalt','fullfort'].includes(s.key)) actions+=`<button class="btn" data-a="upgrade">${s.key==='vurder'?'Start betalt samarbeid':'Ny avtale'}</button>`;
   if(s.key==='vurder') actions+=`<button class="btn ghost" data-a="finish" data-c="${c.id}">Ferdig – ikke betalt</button>`;
   if(!fin) actions+=`<button class="btn ghost" data-a="closeDeal" data-c="${c.id}">Avslutt samarbeid</button>`;
@@ -521,10 +537,10 @@ function modalView(){
     ${slots(d,k)}
     <p class="info ${d.acceptedAt?'':'warn'}">Avtale: ${d.acceptedAt?'godtatt '+dato(d.acceptedAt):'ikke godtatt ennå'}</p>
     <p class="info">Produkt: ${d.productSent?(d.receivedAt?`mottatt ${dato(d.receivedAt)} · frist ${esc(fristTxt(d))}`:`sendt${d.tracking?' · sporing '+esc(d.tracking):''} · ikke mottatt ennå`):'ikke sendt'}</p>
-    ${d.type==='betalt'?`<p class="info ${d.payMethod?'':'warn'}">Betaling: ${kr(d.amount)} · ${esc(payTxt(d))}${d.paid?' · betalt '+dato(d.paidAt):''}</p>`:''}
+    ${d.type==='betalt'?`<p class="info ${d.payMethod?'':'warn'}">Betaling: ${money(d.amount,d.currency)} · ${esc(payTxt(d))}${d.paid?' · betalt '+dato(d.paidAt):''}</p>`:''}
     <div class="row" style="margin:18px 0">${actions}</div>
     ${state.upgrade?`<div class="card soft"><h2>Ny avtale</h2><p class="small muted" style="margin-top:0">Creatoren må godta den nye avtalen når de logger inn. Fristen starter når de godtar.</p>
-      <form data-form="newDeal" data-c="${c.id}" novalidate>${dealFields({type:'betalt',product:d.product,videos:3,amount:2500,days:30,rights:d.rights||12})}
+      <form data-form="newDeal" data-c="${c.id}" novalidate>${dealFields({type:'betalt',product:d.product,videos:3,amount:d.currency==='USD'?250:2500,currency:d.currency||'NOK',days:30,rights:d.rights||12})}
       <label class="check"><input type="checkbox" name="newProduct"> Vi sender et nytt produkt (da starter fristen når de får det)</label>
       ${errFor('deal')}
       <div class="row"><button class="btn" type="submit">Lagre ny avtale</button><button class="btn ghost" type="button" data-a="noupgrade">Avbryt</button></div></form></div>`:''}
@@ -537,7 +553,7 @@ function modalView(){
     <hr>
     <h2>Sporingslenke</h2>
     <div class="copybox"><code>${esc(trackLink(c))}</code><button data-a="copy" data-v="${esc(trackLink(c))}">Kopier</button></div>
-    ${c.deals.length>1?`<hr><h2>Tidligere avtaler</h2><div class="list">${c.deals.slice(0,-1).map(o=>{const ok=counts(c,o);return `<div class="item"><div><div class="url">${esc(o.product)}</div><div class="meta">${ok.approved}/${o.videos} videoer · ${o.type==='betalt'?kr(o.amount):'Gratis produkt'}</div></div>${badge(status(c,o))}</div>`;}).join('')}</div>`:''}
+    ${c.deals.length>1?`<hr><h2>Tidligere avtaler</h2><div class="list">${c.deals.slice(0,-1).map(o=>{const ok=counts(c,o);return `<div class="item"><div><div class="url">${esc(o.product)}</div><div class="meta">${ok.approved}/${o.videos} videoer · ${o.type==='betalt'?money(o.amount,o.currency):'Gratis produkt'}</div></div>${badge(status(c,o))}</div>`;}).join('')}</div>`:''}
     <hr>
     ${state.confirmDelete===c.id
       ?`<p class="small">Sikker? Alt om ${esc(c.name)} blir slettet for alltid.</p><div class="row"><button class="btn sm badfill" data-a="delete" data-c="${c.id}">Ja, slett</button><button class="btn sm ghost" data-a="nodelete">Avbryt</button></div>`
@@ -546,9 +562,10 @@ function modalView(){
 }
 
 function render(){
+  document.documentElement.lang=state.lang==='en'?'en':'no';
   let html;
-  if(state.loading) html=`${topBar('Creator')}<main><p class="empty">Laster …</p></main>`;
-  else if(state.fatal) html=`${topBar('Creator')}<main><div class="login"><h1>Ingen tilgang</h1><p class="lead">${esc(state.fatal)}</p><button class="btn" data-a="logout">Logg ut</button></div></main>`;
+  if(state.loading) html=`${topBar('Creator')}<main><p class="empty">${t('Laster …','Loading …')}</p></main>`;
+  else if(state.fatal) html=`${topBar('Creator')}<main><div class="login"><h1>${t('Ingen tilgang','No access')}</h1><p class="lead">${esc(state.fatal)}</p><button class="btn" data-a="logout">${t('Logg ut','Log out')}</button></div></main>`;
   else if(!state.user) html=loginView();
   else if(isAdmin()) html=adminView()+modalView();
   else html=creatorView();
@@ -558,7 +575,7 @@ function render(){
 /* ---------- handlinger ---------- */
 function fail(key,msg){state.err={[key]:msg};render();return false;}
 function readDeal(fd,key){
-  const v={type:fd.type==='betalt'?'betalt':'produkt',product:(fd.product||'').trim(),videos:parseInt(fd.videos),amount:parseInt(fd.amount)||0,days:parseInt(fd.days),rights:parseInt(fd.rights)};
+  const v={type:fd.type==='betalt'?'betalt':'produkt',product:(fd.product||'').trim(),videos:parseInt(fd.videos),amount:parseInt(fd.amount)||0,currency:fd.currency==='USD'?'USD':'NOK',days:parseInt(fd.days),rights:parseInt(fd.rights)};
   if(!v.product)return fail(key,'Skriv hvilket produkt de får.')&&null;
   if(!(v.videos>=1&&v.videos<=50))return fail(key,'Antall videoer må være mellom 1 og 50.')&&null;
   if(!(v.days>=1&&v.days<=120))return fail(key,'Dager må være mellom 1 og 120.')&&null;
@@ -575,6 +592,7 @@ document.addEventListener('click',async e=>{
   const a=el.dataset.a,cid=el.dataset.c,v=el.dataset.v;
   if(a==='closebg'&&e.target!==el)return;
   switch(a){
+    case 'lang':state.lang=state.lang==='en'?'no':'en';try{localStorage.setItem('cnb_lang',state.lang);}catch(err){}state.flash=null;render();break;
     case 'back':state.loginSent=null;state.err={};render();break;
     case 'logout':await sb.auth.signOut();location.hash='';Object.assign(state,{user:null,role:null,fatal:null,modal:null,flash:null,loginSent:null});db.creators=[];render();break;
     case 'noflash':state.flash=null;render();break;
@@ -588,7 +606,7 @@ document.addEventListener('click',async e=>{
     case 'rejectask':state.rejecting=v;state.err={};render();break;
     case 'rejectcancel':state.rejecting=null;render();break;
     case 'undo':act(()=>upd('videos',v,{status:'venter',reason:''}),'Angret.');break;
-    case 'received':act(()=>rpc('creator_received',{p_deal:deal(me()).id}),'Nå starter det! Lykke til med videoene.');window.scrollTo(0,0);break;
+    case 'received':act(()=>rpc('creator_received',{p_deal:deal(me()).id}),t('Nå starter det! Lykke til med videoene.','Let’s go! Good luck with the videos.'));window.scrollTo(0,0);break;
     case 'recvAdmin':act(()=>upd('deals',deal(byId(cid)).id,{received_at:today()}),'Markert som mottatt. Fristen starter i dag.');break;
     case 'pay':{const c=byId(cid);act(()=>upd('deals',deal(c).id,{paid:true,paid_at:today()}),`${c.name} er markert som betalt. Husk å føre det i Fiken.`);break;}
     case 'closeDeal':{const c=byId(cid);act(()=>upd('deals',deal(c).id,{closed:true}),`Samarbeidet med ${c.name} er avsluttet.`);break;}
@@ -599,7 +617,7 @@ document.addEventListener('click',async e=>{
     case 'askdelete':state.confirmDelete=cid;render();break;
     case 'nodelete':state.confirmDelete=null;render();break;
     case 'delete':{const c=byId(cid);state.modal=null;state.confirmDelete=null;act(async()=>{const r=await sb.from('creators').delete().eq('id',cid);if(r.error)throw r.error;},`${c.name} og all data er slettet.`);break;}
-    case 'copy':{const done=()=>{el.textContent='Kopiert';setTimeout(()=>{el.textContent='Kopier';},1500);};try{navigator.clipboard.writeText(v).then(done,()=>{el.textContent='Marker teksten';});}catch(err){el.textContent='Marker teksten';}break;}
+    case 'copy':{const done=()=>{el.textContent=t('Kopiert','Copied');setTimeout(()=>{el.textContent=t('Kopier','Copy');},1500);};try{navigator.clipboard.writeText(v).then(done,()=>{el.textContent=t('Marker teksten','Select the text');});}catch(err){el.textContent=t('Marker teksten','Select the text');}break;}
   }
 });
 
@@ -610,12 +628,12 @@ document.addEventListener('submit',async e=>{
   switch(f.dataset.form){
     case 'login':{
       const email=(fd.email||'').trim().toLowerCase();
-      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return fail('login','Skriv en gyldig e-postadresse.');
+      if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return fail('login',t('Skriv en gyldig e-postadresse.','Enter a valid email address.'));
       state.busy=true;render();
       try{
         const ok=await sb.rpc('can_login',{p_email:email});
         if(ok.error)throw ok.error;
-        if(!ok.data){state.busy=false;return fail('login',`Vi finner ikke denne e-posten. Har du en avtale med oss? Kontakt ${CONTACT}.`);}
+        if(!ok.data){state.busy=false;return fail('login',t(`Vi finner ikke denne e-posten. Har du en avtale med oss? Kontakt ${CONTACT}.`,`We can’t find this email. Do you have an agreement with us? Contact ${CONTACT}.`));}
         const r=await sb.auth.signInWithOtp({email,options:{shouldCreateUser:true,emailRedirectTo:location.origin+location.pathname}});
         if(r.error)throw r.error;
         state.loginSent=email;
@@ -624,26 +642,26 @@ document.addEventListener('submit',async e=>{
     }
     case 'code':{
       const token=(fd.code||'').replace(/\s/g,'');
-      if(!/^\d{6,10}$/.test(token))return fail('code','Skriv koden fra e-posten.');
+      if(!/^\d{6,10}$/.test(token))return fail('code',t('Skriv koden fra e-posten.','Enter the code from the email.'));
       const r=await sb.auth.verifyOtp({email:state.loginSent,token,type:'email'});
       if(r.error)return fail('code',niceError(r.error));
       break;
     }
     case 'accept':{
-      if(!fd.a1||!fd.a2)return fail('accept','Du må krysse av begge boksene.');
-      act(()=>rpc('creator_accept',{p_deal:deal(me()).id}),'Takk! Avtalen er godtatt.');window.scrollTo(0,0);break;
+      if(!fd.a1||!fd.a2)return fail('accept',t('Du må krysse av begge boksene.','You need to tick both boxes.'));
+      act(()=>rpc('creator_accept',{p_deal:deal(me()).id}),t('Takk! Avtalen er godtatt.','Thanks! The agreement is accepted.'));window.scrollTo(0,0);break;
     }
     case 'paymethod':{
-      const method=fd.method==='faktura'?'faktura':'bank';
-      if(method==='bank'&&!validAcc(fd.account))return fail('pay','Kontonummeret ser feil ut. Det skal være 11 siffer.');
+      const method=fd.method==='bank'?'bank':'faktura';
+      if(method==='bank'&&!validAcc(fd.account))return fail('pay',t('Kontonummeret ser feil ut. Det skal være 11 siffer.','The account number looks wrong. It should be 11 digits.'));
       state.payEdit=false;
-      act(()=>rpc('creator_payment',{p_deal:deal(me()).id,p_method:method,p_account:method==='bank'?String(fd.account):''}),'Betalingsinfo er lagret.');break;
+      act(()=>rpc('creator_payment',{p_deal:deal(me()).id,p_method:method,p_account:method==='bank'?String(fd.account):''}),t('Betalingsinfo er lagret.','Payment details saved.'));break;
     }
     case 'submitVideo':{
       const url=(fd.url||'').trim();
-      if(!platformOf(url))return fail('video','Dette ser ikke ut som en lenke fra TikTok, Instagram, YouTube eller Snapchat.');
-      if(!fd.ad)return fail('video','Kryss av at videoen er merket som reklame og tagger @cesarnoirblix.');
-      act(()=>rpc('creator_submit_video',{p_url:url}),'Takk! Videoen er sendt inn. Den teller når vi har godkjent den.');break;
+      if(!platformOf(url))return fail('video',t('Dette ser ikke ut som en lenke fra TikTok, Instagram, YouTube eller Snapchat.','This does not look like a TikTok, Instagram, YouTube or Snapchat link.'));
+      if(!fd.ad)return fail('video',t('Kryss av at videoen er merket som reklame og tagger @cesarnoirblix.','Tick the box to confirm the video is labelled as an ad and tags @cesarnoirblix.'));
+      act(()=>rpc('creator_submit_video',{p_url:url}),t('Takk! Videoen er sendt inn. Den teller når vi har godkjent den.','Thanks! Your video is submitted. It counts once we have approved it.'));break;
     }
     case 'reject':{
       const reason=[fd.reason,(fd.extra||'').trim()].filter(Boolean).join(' – ');
@@ -669,13 +687,13 @@ document.addEventListener('submit',async e=>{
         if(r.error)throw r.error;newId=r.data.id;
         const r2=await sb.from('deals').insert({creator_id:newId,...nd});
         if(r2.error){await sb.from('creators').delete().eq('id',newId);throw r2.error;}
-      },`${name} er lagt til. Send dem lenken til siden, så kan de logge inn med ${email}.`);
+      },`${name} er lagt til. Send dem lenken cesarnoirblix.com/creator, så kan de logge inn med ${email}.`);
       if(newId){state.modal={type:'creator',id:newId};state.tab='samarbeid';render();}
       break;
     }
     case 'editDeal':{
       const c=byId(f.dataset.c),d=deal(c),nd=readDeal(fd,'edit');if(!nd)return;
-      const changed=['type','product','videos','amount','days','rights'].some(k=>String(d[k])!==String(nd[k]));
+      const changed=['type','product','videos','amount','currency','days','rights'].some(k=>String(d[k])!==String(nd[k]));
       if(!changed){state.flash='Ingen endringer.';render();return;}
       const vals={...nd};if(d.acceptedAt)vals.accepted_at=null;
       act(()=>upd('deals',d.id,vals),d.acceptedAt?'Avtalen er endret. Creatoren må godta på nytt.':'Avtalen er oppdatert.');break;
@@ -703,7 +721,7 @@ sb.auth.onAuthStateChange((event,session)=>{
 });
 (async()=>{
   const {data}=await sb.auth.getSession();
-  if(!data.session){state.loading=false;if(hashErr){state.err={login:'Lenken har gått ut eller er brukt. Be om en ny.'};history.replaceState(null,'',location.pathname);}render();}
+  if(!data.session){state.loading=false;if(hashErr){state.err={login:t('Lenken har gått ut eller er brukt. Be om en ny.','The link has expired or has been used. Ask for a new one.')};history.replaceState(null,'',location.pathname);}render();}
 })();
 window.addEventListener('focus',()=>{if(state.user&&state.role&&!state.busy&&!state.modal)act(async()=>{},state.flash);});
 
