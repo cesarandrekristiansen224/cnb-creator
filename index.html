@@ -129,6 +129,15 @@ details .terms{margin-top:12px}
 .info.warn{color:var(--bad)}
 hr{border:0;border-top:1px solid var(--line);margin:22px 0}
 .empty{color:var(--muted);font-size:14px;padding:14px 0;margin:0}
+.mini.big{height:10px;margin:0}
+.mini i{transition:width .2s}
+.upbox{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;text-align:center;border:1.5px dashed #bdbdbd;background:var(--soft);padding:26px 16px;cursor:pointer}
+.upbox:hover{border-color:var(--ink)}
+.upbox b{font-size:13px;letter-spacing:.06em;text-transform:uppercase}
+.upbox b::before{content:"＋ "}
+.upbox.busy{display:block;text-align:left;cursor:default;border-style:solid;border-color:var(--line)}
+.upbox.busy b::before{content:""}
+.fname{word-break:break-all}
 </style>
 </head>
 <body>
@@ -151,7 +160,8 @@ function initLang(){
   return /^(nb|nn|no)/.test(n)?'no':'en';
 }
 let db = { creators: [] };
-let state = { user: null, role: null, loading: true, busy: false, loginSent: null, tab: 'godkjenn', filter: 'alle', modal: null, flash: null, err: {}, upgrade: false, rejecting: null, payEdit: false, confirmDelete: null, fatal: null, lang: initLang() };
+let state = { user: null, role: null, loading: true, busy: false, loginSent: null, tab: 'godkjenn', filter: 'alle', modal: null, flash: null, err: {}, upgrade: false, rejecting: null, payEdit: false, confirmDelete: null, fatal: null, lang: initLang(), files: [], upload: null, picking: 0, confirmFile: null };
+const MAX_MB = 50, QUOTA_MB = 1024, BUCKET = 'creator-files';
 
 /* ---------- hjelpere ---------- */
 const t=(no,en)=>state.lang==='en'?en:no;
@@ -221,6 +231,11 @@ function niceError(e){
   return t('Noe gikk galt: ','Something went wrong: ')+m;
 }
 
+const mb=b=>{const v=Number(b||0)/1048576;return v>=100?Math.round(v)+' MB':v>=1?v.toFixed(1).replace('.',state.lang==='en'?'.':',')+' MB':Math.max(1,Math.round(v*1024))+' KB';};
+const fileName=p=>String(p).split('/').pop().replace(/^\d{10,}-/,'');
+const filesOf=cid=>state.files.filter(f=>f.path.split('/')[0]===cid);
+function safeName(n){const m=String(n||'video').match(/^(.*?)(\.[A-Za-z0-9]{1,5})?$/);const base=(m[1]||'video').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[æÆ]/g,'ae').replace(/[øØ]/g,'o').replace(/[åÅ]/g,'a').replace(/[^A-Za-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60)||'video';return base+(m[2]||'').toLowerCase();}
+
 /* ---------- data ---------- */
 function mapDeal(r){return{id:r.id,creatorId:r.creator_id,type:r.type,product:r.product,videos:r.videos,amount:r.amount,currency:r.currency||'NOK',days:r.days,rights:r.rights,acceptedAt:r.accepted_at,productSent:r.product_sent,tracking:r.tracking||'',receivedAt:r.received_at,startOnAccept:r.start_on_accept,payMethod:r.pay_method,account:r.account,paid:r.paid,paidAt:r.paid_at,done:r.done,closed:r.closed,createdAt:r.created_at};}
 function mapVideo(r){return{id:r.id,dealId:r.deal_id,creatorId:r.creator_id,url:r.url,platform:r.platform,status:r.status,reason:r.reason||'',ad:r.ad,at:r.created_at};}
@@ -231,6 +246,8 @@ async function load(){
     sb.from('videos').select('*').order('created_at',{ascending:true})
   ]);
   const e=c.error||d.error||v.error; if(e)throw e;
+  const fr=await sb.rpc('list_files');
+  state.files=fr.error?[]:(fr.data||[]).map(x=>({path:x.path,size:Number(x.size||0),type:x.mimetype||'',at:x.created_at}));
   const deals=d.data.map(mapDeal),videos=v.data.map(mapVideo);
   db.creators=c.data.map(r=>({id:r.id,name:r.name,email:r.email,handle:r.handle,slug:r.slug,deals:deals.filter(x=>x.creatorId===r.id),videos:videos.filter(x=>x.creatorId===r.id)})).filter(x=>x.deals.length);
 }
@@ -390,6 +407,7 @@ function creatorView(){
       <h2>${t('Dine videoer','Your videos')}</h2>
       <div class="list">${vids.length?vids.map(v=>videoRow(v,false,c.id)).join(''):`<p class="empty">${t('Ingen videoer ennå.','No videos yet.')}</p>`}</div>
     </div>
+    ${creatorFilesCard(c)}
     <div class="grid g2">
       <div class="card soft"><h2>${t('Huskeliste for videoer','Video checklist')}</h2><ul class="rules">
         <li>${t('Merk videoen som <b>reklame</b>','Label the video as an <b>ad</b>')}</li>
@@ -404,6 +422,30 @@ function creatorView(){
     </div>
     ${older.length?`<div class="card"><h2>${t('Tidligere avtaler','Previous agreements')}</h2><div class="list">${older.map(o=>{const ok=counts(c,o);return `<div class="item"><div><div class="url">${esc(o.product)}</div><div class="meta">${ok.approved}/${o.videos} ${t('videoer','videos')} · ${o.type==='betalt'?money(o.amount,o.currency):t('Gratis produkt','Free product')}</div></div>${badge(status(c,o))}</div>`;}).join('')}</div></div>`:''}
   `+foot;
+}
+
+function fileRow(f,admin){
+  const name=fileName(f.path);
+  const del=state.confirmFile===f.path
+    ?`<span class="small">${t('Slette?','Delete?')}</span><button class="btn sm badfill" data-a="delfile" data-v="${esc(f.path)}">${t('Ja','Yes')}</button><button class="btn sm ghost" data-a="nodelfile">${t('Nei','No')}</button>`
+    :`<button class="link" data-a="askdelfile" data-v="${esc(f.path)}">${t('Slett','Delete')}</button>`;
+  return `<div class="item"><div><div class="url"><span class="plat">${t('Fil','File')}</span><span class="fname">${esc(name)}</span></div>
+    <div class="meta">${admin?esc((byId(f.path.split('/')[0])||{name:'?'}).name)+' · ':''}${mb(f.size)} · ${t('Lastet opp','Uploaded')} ${dato(f.at)}</div></div>
+    <div class="row end"><button class="btn sm ghost" data-a="download" data-v="${esc(f.path)}">${t('Last ned','Download')}</button>${del}</div></div>`;
+}
+function uploadBox(){
+  const u=state.upload;
+  if(u)return `<div class="upbox busy"><p class="small" style="margin:0 0 8px"><b>${t('Laster opp','Uploading')} ${u.n}/${u.total}:</b> ${esc(u.name)}</p><div class="mini big"><i id="upbar" style="width:${u.pct}%"></i></div><p class="hint" id="uppct">${u.pct}% · ${t('Ikke lukk siden','Don’t close the page')}</p></div>`;
+  return `<label class="upbox" data-a="pick"><input type="file" id="upfile" accept="video/*" multiple hidden>
+    <b>${t('Velg videofiler','Choose video files')}</b><span class="small muted">${t(`Fra kamerarullen eller PC-en · maks ${MAX_MB} MB per video`,`From your camera roll or computer · max ${MAX_MB} MB per video`)}</span></label>`;
+}
+function creatorFilesCard(c){
+  const list=filesOf(c.id);
+  return `<div class="card"><h2>${t('Last opp videofilene','Upload your video files')} <span class="badge t-muted">${t('Valgfritt','Optional')}</span></h2>
+    <p class="small" style="margin-top:0">${t('Du <b>må ikke</b> gjøre dette. Men vi blir veldig glade hvis du laster opp originalfilene her. Da kan vi bruke videoene i god kvalitet.','You <b>don’t have to</b> do this. But we would love it if you upload the original files here. Then we can use your videos in good quality.')}</p>
+    ${uploadBox()}${errFor('upload')}
+    <div class="list" style="margin-top:12px">${list.length?list.map(f=>fileRow(f,false)).join(''):`<p class="empty">${t('Ingen filer lastet opp ennå.','No files uploaded yet.')}</p>`}</div>
+  </div>`;
 }
 
 const REASONS=['Mangler reklame-merking','Mangler tagg @cesarnoirblix','Produktet vises ikke godt nok','Lenken virker ikke / videoen er slettet','Passer ikke merkevaren'];
@@ -449,7 +491,7 @@ function adminView(){
   const paidList=[];db.creators.forEach(c=>c.deals.forEach(d=>{if(d.paid)paidList.push({c,d});}));
   const paidSum=sumMoney(paidList);
   const readySum=sumMoney(ready);
-  const tabs=[['godkjenn','Til godkjenning',pending.length],['samarbeid','Samarbeid',0],['betaling','Betalinger',ready.length]];
+  const tabs=[['godkjenn','Til godkjenning',pending.length],['samarbeid','Samarbeid',0],['betaling','Betalinger',ready.length],['filer','Filer',0]];
   let body='';
   if(state.tab==='godkjenn'){
     body=`${toReview.length?`<div class="card soft"><h2>Ferdige gratis-samarbeid – vurder betalt</h2>${toReview.map(x=>`<div class="spread" style="padding:6px 0"><span><b>${esc(x.c.name)}</b> <span class="muted small">${esc(x.c.handle)} · ${x.k.approved}/${x.d.videos} videoer</span></span><button class="btn sm ghost" data-a="open" data-c="${x.c.id}">Åpne</button></div>`).join('')}</div>`:''}
@@ -468,6 +510,14 @@ function adminView(){
         <div><div class="small">${esc(x.d.product)}</div><div class="small muted">${x.d.type==='betalt'?money(x.d.amount,x.d.currency):'Gratis produkt'}${FINAL.includes(x.s.key)?'':' · frist '+esc(fristTxt(x.d))}</div></div>
         <div><div class="small"><b>${x.k.approved}/${x.d.videos}</b> videoer${x.k.pending?` · ${x.k.pending} venter`:''}</div><div class="mini"><i style="width:${Math.min(100,x.k.approved/x.d.videos*100)}%"></i></div></div>
         <div>${badge(x.s)}</div></button>`;}).join(''):'<p class="empty">Ingen i denne listen.</p>'}`;
+  } else if(state.tab==='filer'){
+    const used=state.files.reduce((a,f)=>a+f.size,0),pct=Math.min(100,used/(QUOTA_MB*1048576)*100);
+    const groups=db.creators.filter(c=>filesOf(c.id).length);
+    body=`<div class="card soft"><h2>Lagringsplass</h2>
+      <div class="mini big"><i style="width:${pct}%;${pct>80?'background:var(--bad)':''}"></i></div>
+      <p class="small" style="margin-bottom:0">${mb(used)} brukt av 1 GB (${state.files.length} filer).${pct>80?' <b>Snart fullt.</b> Last ned og slett gamle filer, eller oppgrader Supabase til Pro.':''}</p>
+      <p class="hint">Creators kan laste opp videoer på maks ${MAX_MB} MB. Last ned filene og lagre dem der dere vil, og slett dem her når dere er ferdige.</p></div>
+      ${groups.length?groups.map(c=>`<div class="card"><h2>${esc(c.name)} <span class="muted small">${esc(c.handle)}</span></h2><div class="list">${filesOf(c.id).map(f=>fileRow(f,false)).join('')}</div></div>`).join(''):'<div class="card"><p class="empty">Ingen filer lastet opp ennå.</p></div>'}`;
   } else {
     body=`<div class="card"><h2>Klar for betaling (${readySum})</h2><div class="list">${ready.length?ready.map(x=>`<div class="item"><div><div class="url"><b>${esc(x.c.name)}</b> · ${money(x.d.amount,x.d.currency)}</div><div class="meta">${x.k.approved}/${x.d.videos} videoer godkjent · ${esc(payTxt(x.d))}</div></div><div class="row end"><button class="btn sm ghost" data-a="open" data-c="${x.c.id}">Se</button><button class="btn sm" data-a="pay" data-c="${x.c.id}">Marker betalt</button></div></div>`).join(''):'<p class="empty">Ingen venter på betaling.</p>'}</div>
       <p class="hint">Faktura: vent til fakturaen har kommet, betal den, og før den i Fiken. Bankoverføring uten faktura: spør regnskapsføreren hvordan det skal føres. Betalinger i USD føres i NOK etter kursen på betalingsdagen.</p></div>
@@ -551,6 +601,9 @@ function modalView(){
     <p class="small muted" style="margin-top:0">Hvis dere endrer noe etter at de har godtatt, må de godta på nytt.</p>
     <form data-form="editDeal" data-c="${c.id}" novalidate>${dealFields(d)}${errFor('edit')}<button class="btn ghost" type="submit">Lagre endringer</button></form>`}
     <hr>
+    <h2>Videofiler (${filesOf(c.id).length})</h2>
+    <div class="list">${filesOf(c.id).length?filesOf(c.id).map(f=>fileRow(f,false)).join(''):'<p class="empty">Ingen filer lastet opp.</p>'}</div>
+    <hr>
     <h2>Sporingslenke</h2>
     <div class="copybox"><code>${esc(trackLink(c))}</code><button data-a="copy" data-v="${esc(trackLink(c))}">Kopier</button></div>
     ${c.deals.length>1?`<hr><h2>Tidligere avtaler</h2><div class="list">${c.deals.slice(0,-1).map(o=>{const ok=counts(c,o);return `<div class="item"><div><div class="url">${esc(o.product)}</div><div class="meta">${ok.approved}/${o.videos} videoer · ${o.type==='betalt'?money(o.amount,o.currency):'Gratis produkt'}</div></div>${badge(status(c,o))}</div>`;}).join('')}</div>`:''}
@@ -616,7 +669,18 @@ document.addEventListener('click',async e=>{
     case 'payedit':state.payEdit=true;render();break;
     case 'askdelete':state.confirmDelete=cid;render();break;
     case 'nodelete':state.confirmDelete=null;render();break;
-    case 'delete':{const c=byId(cid);state.modal=null;state.confirmDelete=null;act(async()=>{const r=await sb.from('creators').delete().eq('id',cid);if(r.error)throw r.error;},`${c.name} og all data er slettet.`);break;}
+    case 'delete':{const c=byId(cid);state.modal=null;state.confirmDelete=null;act(async()=>{const fl=filesOf(cid).map(f=>f.path);if(fl.length){const rr=await sb.storage.from(BUCKET).remove(fl);if(rr.error)throw rr.error;}const r=await sb.from('creators').delete().eq('id',cid);if(r.error)throw r.error;},`${c.name} og all data er slettet.`);break;}
+    case 'pick':if(state.upload){e.preventDefault();break;}state.picking=Date.now();state.err={};break;
+    case 'download':{
+      const w=el.textContent;el.textContent='…';
+      const r=await sb.storage.from(BUCKET).createSignedUrl(v,600,{download:fileName(v)});
+      el.textContent=w;
+      if(r.error||!r.data){state.flash=niceError(r.error||'Fant ikke filen');render();break;}
+      location.href=r.data.signedUrl;break;
+    }
+    case 'askdelfile':state.confirmFile=v;render();break;
+    case 'nodelfile':state.confirmFile=null;render();break;
+    case 'delfile':state.confirmFile=null;act(async()=>{const r=await sb.storage.from(BUCKET).remove([v]);if(r.error)throw r.error;},t('Filen er slettet.','The file is deleted.'));break;
     case 'copy':{const done=()=>{el.textContent=t('Kopiert','Copied');setTimeout(()=>{el.textContent=t('Kopier','Copy');},1500);};try{navigator.clipboard.writeText(v).then(done,()=>{el.textContent=t('Marker teksten','Select the text');});}catch(err){el.textContent=t('Marker teksten','Select the text');}break;}
   }
 });
@@ -711,6 +775,54 @@ document.addEventListener('submit',async e=>{
   }
 });
 
+/* ---------- opplasting ---------- */
+function uploadOne(file,path,token,onPct){
+  return new Promise((res,rej)=>{
+    const x=new XMLHttpRequest();
+    x.open('POST',`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${path.split('/').map(encodeURIComponent).join('/')}`);
+    x.setRequestHeader('Authorization','Bearer '+token);
+    x.setRequestHeader('apikey',SUPABASE_KEY);
+    x.setRequestHeader('x-upsert','false');
+    x.setRequestHeader('Content-Type',file.type||'video/mp4');
+    x.upload.onprogress=ev=>{if(ev.lengthComputable)onPct(Math.round(ev.loaded/ev.total*100));};
+    x.onload=()=>{if(x.status>=200&&x.status<300)res();else{let m='';try{m=JSON.parse(x.responseText).message||'';}catch(e){m=x.responseText;}rej(new Error(m||('HTTP '+x.status)));}};
+    x.onerror=()=>rej(new Error('Failed to fetch'));
+    x.send(file);
+  });
+}
+async function startUpload(files){
+  state.picking=0;
+  const c=me();if(!c||state.upload)return;
+  const list=[...files];
+  const tooBig=list.filter(f=>f.size>MAX_MB*1048576),notVideo=list.filter(f=>f.type&&!f.type.startsWith('video/'));
+  const ok=list.filter(f=>!tooBig.includes(f)&&!notVideo.includes(f));
+  let msg=[];
+  if(tooBig.length)msg.push(t(`For stor (maks ${MAX_MB} MB): `,`Too large (max ${MAX_MB} MB): `)+tooBig.map(f=>f.name).join(', ')+t('. Du trenger ikke laste opp den – det er helt greit.','. You don’t need to upload it – that’s completely fine.'));
+  if(notVideo.length)msg.push(t('Ikke en video: ','Not a video: ')+notVideo.map(f=>f.name).join(', '));
+  if(!ok.length){state.err={upload:msg.join(' ')};render();return;}
+  const {data}=await sb.auth.getSession();const token=data.session&&data.session.access_token;
+  if(!token){state.err={upload:t('Du er logget ut. Logg inn igjen.','You are logged out. Log in again.')};render();return;}
+  let done=0;
+  for(let i=0;i<ok.length;i++){
+    const f=ok[i];
+    state.upload={n:i+1,total:ok.length,name:f.name,pct:0};render();
+    try{
+      await uploadOne(f,`${c.id}/${Date.now()}-${safeName(f.name)}`,token,p=>{state.upload.pct=p;const b=document.getElementById('upbar'),q=document.getElementById('uppct');if(b)b.style.width=p+'%';if(q)q.textContent=p+'% · '+t('Ikke lukk siden','Don’t close the page');});
+      done++;
+    }catch(err){
+      const m=String(err.message||err);
+      msg.push(f.name+': '+(/size|large|413/i.test(m)?t(`for stor (maks ${MAX_MB} MB).`,`too large (max ${MAX_MB} MB).`):/mime|type/i.test(m)?t('ikke en video.','not a video.'):/quota|storage.*(full|limit)/i.test(m)?t('lagringen er full. Si fra til oss.','storage is full. Please tell us.'):niceError(err)));
+    }
+  }
+  state.upload=null;
+  try{await load();}catch(e){}
+  state.err=msg.length?{upload:msg.join(' ')}:{};
+  state.flash=done?t(done===1?'Takk! Videoen er lastet opp.':`Takk! ${done} videoer er lastet opp.`,done===1?'Thanks! Your video is uploaded.':`Thanks! ${done} videos are uploaded.`):null;
+  render();
+}
+document.addEventListener('change',e=>{if(e.target&&e.target.id==='upfile'&&e.target.files&&e.target.files.length)startUpload(e.target.files);});
+window.addEventListener('beforeunload',e=>{if(state.upload){e.preventDefault();e.returnValue='';}});
+
 /* ---------- oppstart ---------- */
 const hashErr=new URLSearchParams(location.hash.slice(1)).get('error_description');
 sb.auth.onAuthStateChange((event,session)=>{
@@ -723,7 +835,7 @@ sb.auth.onAuthStateChange((event,session)=>{
   const {data}=await sb.auth.getSession();
   if(!data.session){state.loading=false;if(hashErr){state.err={login:t('Lenken har gått ut eller er brukt. Be om en ny.','The link has expired or has been used. Ask for a new one.')};history.replaceState(null,'',location.pathname);}render();}
 })();
-window.addEventListener('focus',()=>{if(state.user&&state.role&&!state.busy&&!state.modal)act(async()=>{},state.flash);});
+window.addEventListener('focus',()=>{if(state.upload||Date.now()-state.picking<120000)return;if(state.user&&state.role&&!state.busy&&!state.modal)act(async()=>{},state.flash);});
 
 </script>
 </body>
