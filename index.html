@@ -5,6 +5,11 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex">
 <title>CNB Creator</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="CNB">
 <style>
 :root{
   --ink:#111; --muted:#6f6f6f; --line:#e7e7e7; --bg:#fff; --soft:#f6f6f4;
@@ -195,8 +200,13 @@ function initLang(){
   return /^(nb|nn|no)/.test(n)?'no':'en';
 }
 let db = { creators: [] };
-let state = { user: null, role: null, loading: true, busy: false, loginSent: null, tab: 'godkjenn', filter: 'alle', modal: null, flash: null, err: {}, upgrade: false, rejecting: null, payEdit: false, confirmDelete: null, fatal: null, lang: initLang(), files: [], upload: null, picking: 0, confirmFile: null, todos: [], todoFocus: false, confirmTodo: null, listKind: 'todo', listWho: 'alle', showDone: false };
+let state = { user: null, role: null, loading: true, busy: false, loginSent: null, tab: 'godkjenn', filter: 'alle', modal: null, flash: null, err: {}, upgrade: false, rejecting: null, payEdit: false, confirmDelete: null, fatal: null, lang: initLang(), files: [], upload: null, picking: 0, confirmFile: null, todos: [], todoFocus: false, confirmTodo: null, listKind: 'todo', listWho: 'alle', showDone: false, push: '', pushOpen: false, pushHide: (()=>{try{return localStorage.getItem('cnb_push_hide')==='1';}catch(e){return false;}})() };
 const MAX_MB = 50, QUOTA_MB = 1024, BUCKET = 'creator-files';
+const VAPID_PUBLIC = 'BKMD5SVfMgpSaATSvt3YUgAGpzm-9PPRlrStAmnu3BpIN3fgWBiX4uLuJY_B2xy26mpKF-dOlB1ZyfxPiQa-fAI';
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+const IS_STANDALONE = (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+const TABS = ['godkjenn','samarbeid','betaling','filer','liste'];
+{const h=location.hash.slice(1);if(TABS.includes(h)){state.tab=h;history.replaceState(null,'',location.pathname+location.search);}}
 
 /* ---------- hjelpere ---------- */
 const t=(no,en)=>state.lang==='en'?en:no;
@@ -302,6 +312,54 @@ async function load(){
   const deals=d.data.map(mapDeal),videos=v.data.map(mapVideo);
   db.creators=c.data.map(r=>({id:r.id,name:r.name,email:r.email,handle:r.handle,slug:r.slug,deals:deals.filter(x=>x.creatorId===r.id),videos:videos.filter(x=>x.creatorId===r.id)})).filter(x=>x.deals.length);
 }
+/* ---------- varsler (push) ---------- */
+function b64uToBytes(s){const p='='.repeat((4-s.length%4)%4);const b=atob((s+p).replace(/-/g,'+').replace(/_/g,'/'));return Uint8Array.from(b,c=>c.charCodeAt(0));}
+async function pushInit(){
+  try{
+    if(!('serviceWorker' in navigator)){state.push='unsupported';return;}
+    if(!('PushManager' in window)||!('Notification' in window)){state.push=IS_IOS&&!IS_STANDALONE?'ios':'unsupported';return;}
+    const reg=await navigator.serviceWorker.register('sw.js');
+    const sub=await reg.pushManager.getSubscription();
+    if(Notification.permission==='denied')state.push='denied';
+    else if(sub&&Notification.permission==='granted'){state.push='on';const j=sub.toJSON();sb.rpc('push_save',{p_endpoint:j.endpoint,p_p256dh:j.keys.p256dh,p_auth:j.keys.auth});}
+    else state.push='off';
+  }catch(e){state.push='unsupported';}
+}
+async function pushOn(){
+  const perm=await Notification.requestPermission();
+  if(perm!=='granted'){state.push=perm==='denied'?'denied':'off';state.pushOpen=true;render();return;}
+  await act(async()=>{
+    const reg=await navigator.serviceWorker.ready;
+    let sub=await reg.pushManager.getSubscription();
+    if(!sub)sub=await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:b64uToBytes(VAPID_PUBLIC)});
+    const j=sub.toJSON();
+    const r=await sb.rpc('push_save',{p_endpoint:j.endpoint,p_p256dh:j.keys.p256dh,p_auth:j.keys.auth});
+    if(r.error)throw r.error;
+    state.push='on';state.pushOpen=false;
+  },'Varsler er på. Trykk «Varsler» øverst for å sende en test.');
+}
+async function pushOff(){
+  await act(async()=>{
+    const reg=await navigator.serviceWorker.getRegistration();
+    const sub=reg&&await reg.pushManager.getSubscription();
+    if(sub){await sb.rpc('push_delete',{p_endpoint:sub.endpoint});await sub.unsubscribe();}
+    state.push='off';state.pushOpen=false;
+  },'Varsler er slått av på denne enheten.');
+}
+function pushCard(){
+  const p=state.push;
+  if(!p||p==='unsupported')return '';
+  if(!state.pushOpen&&(p==='on'||state.pushHide))return '';
+  const close=`<button class="link" data-a="${state.pushOpen?'pushclose':'pushhide'}">${state.pushOpen?'Lukk':'Ikke nå'}</button>`;
+  let inner;
+  if(p==='on')inner=`<p class="small" style="margin:0 0 12px">Varsler er på her. Dere får beskjed når creators leverer, godtar eller laster opp, og når den andre av dere legger til eller gjør noe. Dere får ikke varsel om det dere gjør selv.</p><div class="row"><button class="btn sm" data-a="pushtest">Send test</button><button class="btn sm ghost" data-a="pushoff">Slå av her</button></div>`;
+  else if(p==='ios')inner=`<p class="small" style="margin:0 0 8px">På iPhone må siden ligge på hjemskjermen først:</p><ol class="small" style="margin:0;padding-left:20px"><li>Trykk på Del-knappen (firkant med pil opp).</li><li>Velg «Legg til på Hjem-skjerm».</li><li>Åpne CNB fra hjemskjermen, logg inn med koden fra e-posten, og trykk «Slå på varsler».</li></ol>`;
+  else if(p==='denied')inner=`<p class="small" style="margin:0">Varsler er blokkert på denne enheten. Tillat varsler for siden i innstillingene, og last siden inn på nytt.</p>`;
+  else inner=`<p class="small" style="margin:0 0 12px">Få beskjed på mobilen når noe skjer: nye videoer, godkjenninger, nye ideer og ting som er gjort.</p><button class="btn sm" data-a="pushon">Slå på varsler</button>`;
+  return `<div class="card soft"><div class="spread" style="margin-bottom:8px"><h2 style="margin:0">Varsler</h2>${close}</div>${inner}</div>`;
+}
+if('serviceWorker' in navigator)navigator.serviceWorker.addEventListener('message',e=>{const t=e.data&&e.data.tab;if(t&&TABS.includes(t)&&isAdmin()){state.tab=t;act(async()=>{},null);}});
+
 async function boot(session){
   state.user=session.user.email.toLowerCase();state.loading=true;render();
   try{
@@ -309,6 +367,7 @@ async function boot(session){
     if(a.error)throw a.error;
     state.role=a.data.length?'admin':'creator';
     await load();
+    if(state.role==='admin')await pushInit();
     if(state.role==='creator'&&!db.creators.length){state.role=null;state.fatal=t('Vi fant ingen avtale for ','We could not find an agreement for ')+state.user+t('. Kontakt ','. Contact ')+CONTACT+'.';}
   }catch(e){state.fatal=niceError(e);}
   state.loading=false;render();
@@ -595,8 +654,9 @@ function adminView(){
     <div class="card"><h2>Betalt (${paidSum})</h2><div class="list">${paidList.length?paidList.map(x=>`<div class="item"><div><div class="url"><b>${esc(x.c.name)}</b> · ${money(x.d.amount,x.d.currency)}</div><div class="meta">Betalt ${dato(x.d.paidAt)} · ${x.d.videos} videoer · ${esc(payTxt(x.d))}</div></div><span class="badge t-ok">Betalt</span></div>`).join(''):'<p class="empty">Ingen betalinger ennå.</p>'}</div></div>`;
   }
   return `${topBar('Creator · Admin')}<main>${flash()}
-    <div class="spread"><h1>Samarbeid</h1><button class="link" data-a="refresh">Oppdater</button></div>
+    <div class="spread"><h1>Samarbeid</h1><span>${state.push&&state.push!=='unsupported'?`<button class="link" data-a="pushopen">Varsler${state.push==='on'?' ✓':''}</button> · `:''}<button class="link" data-a="refresh">Oppdater</button></span></div>
     <p class="lead">Oversikt over alle creators, videoer og betalinger.</p>
+    ${pushCard()}
     <div class="grid g4" style="margin-bottom:10px">
       <div class="stat"><b>${active.length}</b><span>Aktive samarbeid</span></div>
       <div class="stat"><b>${pending.length}</b><span>Videoer venter</span></div>
@@ -724,6 +784,12 @@ document.addEventListener('click',async e=>{
     case 'noflash':state.flash=null;render();break;
     case 'refresh':act(async()=>{},null);break;
     case 'tab':state.tab=v;state.flash=null;render();break;
+    case 'pushon':pushOn();break;
+    case 'pushoff':pushOff();break;
+    case 'pushtest':act(()=>rpc('push_test',{}),'Test sendt. Den kommer om noen sekunder.');break;
+    case 'pushopen':state.pushOpen=!state.pushOpen;render();break;
+    case 'pushclose':state.pushOpen=false;render();break;
+    case 'pushhide':state.pushHide=true;try{localStorage.setItem('cnb_push_hide','1');}catch(err){}render();break;
     case 'filter':state.filter=v;render();break;
     case 'todotoggle':{
       const x=state.todos.find(t=>t.id===v);if(!x)break;
@@ -919,6 +985,7 @@ async function startUpload(files){
     }
   }
   state.upload=null;
+  if(done){try{await sb.rpc('creator_files_done',{p_count:done});}catch(e){}}
   try{await load();}catch(e){}
   state.err=msg.length?{upload:msg.join(' ')}:{};
   state.flash=done?t(done===1?'Takk! Videoen er lastet opp.':`Takk! ${done} videoer er lastet opp.`,done===1?'Thanks! Your video is uploaded.':`Thanks! ${done} videos are uploaded.`):null;
