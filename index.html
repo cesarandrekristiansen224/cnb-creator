@@ -138,25 +138,41 @@ hr{border:0;border-top:1px solid var(--line);margin:22px 0}
 .upbox.busy{display:block;text-align:left;cursor:default;border-style:solid;border-color:var(--line)}
 .upbox.busy b::before{content:""}
 .fname{word-break:break-all}
-.todo-form{display:flex;gap:8px;margin:14px 0 6px}
-.todo-form input{flex:1;min-width:0;font-size:16px}
-.todo-form .btn{flex:none}
-.todo-list{margin-top:6px}
-.todo{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
-.todo:last-child{border-bottom:0}
-.tick{flex:none;width:28px;height:28px;margin-top:1px;border:2px solid var(--ink);border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;position:relative}
-.tick::after{content:'';position:absolute;inset:-8px}
-.todo.is-done .tick{background:var(--ink)}
-.todo-t{flex:1;min-width:0}
-.todo-txt{font-size:15px;line-height:1.4;word-break:break-word}
-.todo.is-done .todo-txt{text-decoration:line-through;color:var(--muted)}
-.todo-meta{font-size:12px;color:var(--muted);margin-top:3px}
-.todo-x{flex:none;width:36px;height:36px;margin:-4px -6px 0 0;border:0;background:none;font-size:22px;line-height:1;color:#9a9a9a;cursor:pointer}
-.todo-x:hover{color:var(--bad)}
-.todo-ask{display:flex;gap:6px;flex:none}
-.todo-done summary{display:flex;justify-content:space-between;align-items:center;cursor:pointer;list-style:none}
-.todo-done summary::-webkit-details-marker{display:none}
-.todo-done[open] summary .muted{visibility:hidden}
+.lst{max-width:640px}
+.seg{display:grid;grid-template-columns:1fr 1fr;background:var(--soft);padding:4px;gap:4px}
+.seg button{border:0;background:transparent;padding:12px 8px;font-size:14px;font-weight:600;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;min-height:46px}
+.seg button span{font-size:12px;font-weight:700;background:#e3e3e0;color:var(--muted);padding:2px 7px;border-radius:10px}
+.seg button.on{background:#fff;color:var(--ink);box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.seg button.on span{background:var(--ink);color:#fff}
+.addrow{display:flex;gap:8px;margin:14px 0 0}
+.addrow input{flex:1;min-width:0;font-size:16px;padding:14px;border-color:#d6d6d6}
+.addbtn{flex:none;width:52px;border:0;background:var(--ink);cursor:pointer;display:flex;align-items:center;justify-content:center}
+.addbtn:hover{opacity:.85}
+.who{display:flex;gap:6px;margin:14px 0 4px}
+.who button{border:1px solid var(--line);background:#fff;padding:7px 12px;font-size:12px;font-weight:600;color:var(--muted);cursor:pointer;border-radius:20px;min-height:34px}
+.who button.on{border-color:var(--ink);color:var(--ink)}
+.lis{margin-top:4px}
+.li{display:flex;align-items:flex-start;gap:12px;padding:14px 0;border-bottom:1px solid var(--line)}
+.li-tick{flex:none;width:26px;height:26px;margin-top:1px;border:1.6px solid #9a9a9a;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;position:relative;transition:border-color .15s,background .15s}
+.li-tick::after{content:'';position:absolute;inset:-9px}
+.li-tick:hover{border-color:var(--ink)}
+.li.is-done .li-tick{background:var(--ink);border-color:var(--ink)}
+.li-dot{flex:none;width:8px;height:8px;margin:8px 9px 0;border-radius:50%;background:var(--ink)}
+.li-body{flex:1;min-width:0}
+.li-txt{font-size:15px;line-height:1.4;word-break:break-word}
+.li.is-done .li-txt{text-decoration:line-through;color:var(--muted)}
+.li-meta{font-size:12px;color:#9a9a9a;margin-top:3px}
+.li-act{flex:none;display:flex;align-items:center;gap:2px;margin-top:-4px}
+.li-x{width:34px;height:34px;border:0;background:none;font-size:20px;line-height:1;color:#b5b5b5;cursor:pointer}
+.li-x:hover{color:var(--bad)}
+.li-move{border:1px solid var(--line);background:#fff;font-size:12px;font-weight:600;padding:6px 10px;cursor:pointer;border-radius:20px}
+.li-move:hover{border-color:var(--ink)}
+.li-ask{display:flex;gap:6px}
+.li-yes,.li-no{border:1px solid var(--bad);background:var(--bad);color:#fff;font-size:12px;font-weight:600;padding:7px 10px;cursor:pointer}
+.li-no{background:#fff;color:var(--ink);border-color:var(--line)}
+.li-empty{color:var(--muted);font-size:14px;padding:22px 0;text-align:center}
+.li-showdone{margin-top:14px;border:0;background:none;color:var(--muted);font-size:13px;font-weight:600;cursor:pointer;padding:8px 0;text-decoration:underline;text-underline-offset:3px}
+.lis-done .li{opacity:.75}
 </style>
 </head>
 <body>
@@ -179,7 +195,7 @@ function initLang(){
   return /^(nb|nn|no)/.test(n)?'no':'en';
 }
 let db = { creators: [] };
-let state = { user: null, role: null, loading: true, busy: false, loginSent: null, tab: 'godkjenn', filter: 'alle', modal: null, flash: null, err: {}, upgrade: false, rejecting: null, payEdit: false, confirmDelete: null, fatal: null, lang: initLang(), files: [], upload: null, picking: 0, confirmFile: null, todos: [], todoFocus: false, confirmTodo: null };
+let state = { user: null, role: null, loading: true, busy: false, loginSent: null, tab: 'godkjenn', filter: 'alle', modal: null, flash: null, err: {}, upgrade: false, rejecting: null, payEdit: false, confirmDelete: null, fatal: null, lang: initLang(), files: [], upload: null, picking: 0, confirmFile: null, todos: [], todoFocus: false, confirmTodo: null, listKind: 'todo', listWho: 'alle', showDone: false };
 const MAX_MB = 50, QUOTA_MB = 1024, BUCKET = 'creator-files';
 
 /* ---------- hjelpere ---------- */
@@ -259,13 +275,15 @@ const WHO={'hei@cesarnoirblix.com':'Cesar','noahrafoss@gmail.com':'Noah'};
 const who=e=>WHO[(e||'').toLowerCase()]||(e||'').split('@')[0]||'?';
 const shortDate=d=>{try{return new Date(d).toLocaleDateString('nb-NO',{day:'numeric',month:'short'});}catch(e){return '';}};
 function todoRow(x){
+  const idea=x.kind==='idea';
   const del=state.confirmTodo===x.id
-    ?`<span class="todo-ask"><button class="btn sm badfill" data-a="tododel" data-v="${x.id}">Slett</button><button class="btn sm ghost" data-a="todonodel">Avbryt</button></span>`
-    :`<button class="todo-x" data-a="todoask" data-v="${x.id}" aria-label="Slett">×</button>`;
-  return `<div class="todo${x.done?' is-done':''}">
-    <button class="tick" data-a="todotoggle" data-v="${x.id}" aria-pressed="${x.done}" aria-label="${x.done?'Marker som ikke gjort':'Marker som gjort'}">${x.done?'<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#fff" stroke-width="2.2"><path d="M2.5 7.5l3 3 6-7"/></svg>':''}</button>
-    <div class="todo-t"><div class="todo-txt">${esc(x.text)}</div><div class="todo-meta">${esc(who(x.created_by))} · ${shortDate(x.created_at)}${x.done&&x.done_by?` · gjort av ${esc(who(x.done_by))}`:''}</div></div>
-    ${del}</div>`;
+    ?`<span class="li-ask"><button class="li-yes" data-a="tododel" data-v="${x.id}">Slett</button><button class="li-no" data-a="todonodel">Avbryt</button></span>`
+    :`${idea?`<button class="li-move" data-a="idea2todo" data-v="${x.id}">Gjør</button>`:''}<button class="li-x" data-a="todoask" data-v="${x.id}" aria-label="Slett">×</button>`;
+  const lead=idea?'<span class="li-dot" aria-hidden="true"></span>'
+    :`<button class="li-tick" data-a="todotoggle" data-v="${x.id}" aria-pressed="${x.done}" aria-label="${x.done?'Marker som ikke gjort':'Marker som gjort'}">${x.done?'<svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="#fff" stroke-width="2.4"><path d="M2.5 7.5l3 3 6-7"/></svg>':''}</button>`;
+  return `<div class="li${x.done?' is-done':''}">${lead}
+    <div class="li-body"><div class="li-txt">${esc(x.text)}</div><div class="li-meta">${esc(who(x.created_by))} · ${shortDate(x.created_at)}${x.done&&x.done_by?` · gjort av ${esc(who(x.done_by))}`:''}</div></div>
+    <div class="li-act">${del}</div></div>`;
 }
 
 /* ---------- data ---------- */
@@ -524,7 +542,7 @@ function adminView(){
   const paidList=[];db.creators.forEach(c=>c.deals.forEach(d=>{if(d.paid)paidList.push({c,d});}));
   const paidSum=sumMoney(paidList);
   const readySum=sumMoney(ready);
-  const tabs=[['godkjenn','Til godkjenning',pending.length],['samarbeid','Samarbeid',0],['betaling','Betalinger',ready.length],['filer','Filer',0],['liste','Liste',state.todos.filter(x=>!x.done).length]];
+  const tabs=[['godkjenn','Til godkjenning',pending.length],['samarbeid','Samarbeid',0],['betaling','Betalinger',ready.length],['filer','Filer',0],['liste','Liste',state.todos.filter(x=>(x.kind||'todo')==='todo'&&!x.done).length]];
   let body='';
   if(state.tab==='godkjenn'){
     body=`${toReview.length?`<div class="card soft"><h2>Ferdige gratis-samarbeid – vurder betalt</h2>${toReview.map(x=>`<div class="spread" style="padding:6px 0"><span><b>${esc(x.c.name)}</b> <span class="muted small">${esc(x.c.handle)} · ${x.k.approved}/${x.d.videos} videoer</span></span><button class="btn sm ghost" data-a="open" data-c="${x.c.id}">Åpne</button></div>`).join('')}</div>`:''}
@@ -544,17 +562,25 @@ function adminView(){
         <div><div class="small"><b>${x.k.approved}/${x.d.videos}</b> videoer${x.k.pending?` · ${x.k.pending} venter`:''}</div><div class="mini"><i style="width:${Math.min(100,x.k.approved/x.d.videos*100)}%"></i></div></div>
         <div>${badge(x.s)}</div></button>`;}).join(''):'<p class="empty">Ingen i denne listen.</p>'}`;
   } else if(state.tab==='liste'){
-    const open=state.todos.filter(x=>!x.done),done=state.todos.filter(x=>x.done).sort((a,b)=>String(b.done_at||'').localeCompare(String(a.done_at||'')));
-    body=`<div class="card">
-      <h2>Liste for Cesar og Noah</h2>
-      <p class="small muted" style="margin-top:0">Ideer og ting som må gjøres. Bare dere to ser denne.</p>
-      <form data-form="todo" class="todo-form" novalidate autocomplete="off">
-        <input name="text" id="todo-input" maxlength="500" placeholder="Skriv en idé eller noe som må gjøres …" aria-label="Ny oppgave">
-        <button class="btn" type="submit">Legg til</button>
+    const kind=state.listKind, w=state.listWho;
+    const mine=x=>w==='alle'||who(x.created_by).toLowerCase()===w;
+    const todos=state.todos.filter(x=>(x.kind||'todo')==='todo'), ideas=state.todos.filter(x=>x.kind==='idea');
+    const openT=todos.filter(x=>!x.done);
+    const shown=(kind==='idea'?ideas:openT).filter(mine);
+    const done=todos.filter(x=>x.done&&mine(x)).sort((a,b)=>String(b.done_at||'').localeCompare(String(a.done_at||'')));
+    body=`<div class="lst">
+      <div class="seg" role="tablist">
+        <button role="tab" aria-selected="${kind==='todo'}" class="${kind==='todo'?'on':''}" data-a="listkind" data-v="todo">Gjøre <span>${openT.length}</span></button>
+        <button role="tab" aria-selected="${kind==='idea'}" class="${kind==='idea'?'on':''}" data-a="listkind" data-v="idea">Ideer <span>${ideas.length}</span></button>
+      </div>
+      <form data-form="todo" class="addrow" novalidate autocomplete="off">
+        <input name="text" id="todo-input" maxlength="500" placeholder="${kind==='idea'?'Skriv en idé …':'Hva må gjøres?'}" aria-label="${kind==='idea'?'Ny idé':'Ny oppgave'}">
+        <button type="submit" class="addbtn" aria-label="Legg til"><svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="#fff" stroke-width="2.2"><path d="M9 3v12M3 9h12"/></svg></button>
       </form>${errFor('todo')}
-      <div class="todo-list">${open.length?open.map(todoRow).join(''):'<p class="empty">Ingenting på lista. Skriv noe over.</p>'}</div>
-    </div>
-    ${done.length?`<details class="card soft todo-done"${state.todoDoneOpen?' open':''}><summary><b>Ferdig (${done.length})</b><span class="small muted">Vis</span></summary><div class="todo-list">${done.map(todoRow).join('')}</div></details>`:''}`;
+      <div class="who">${[['alle','Alle'],['cesar','Cesar'],['noah','Noah']].map(([k,l])=>`<button class="${w===k?'on':''}" data-a="listwho" data-v="${k}">${l}</button>`).join('')}</div>
+      <div class="lis">${shown.length?shown.map(todoRow).join(''):`<p class="li-empty">${kind==='idea'?'Ingen ideer ennå. Skriv den første over.':'Alt er gjort. Bra jobba!'}</p>`}</div>
+      ${kind==='todo'&&done.length?`<button class="li-showdone" data-a="showdone">${state.showDone?'Skjul':'Vis'} ferdige (${done.length})</button>${state.showDone?`<div class="lis lis-done">${done.map(todoRow).join('')}</div>`:''}`:''}
+    </div>`;
   } else if(state.tab==='filer'){
     const used=state.files.reduce((a,f)=>a+f.size,0),pct=Math.min(100,used/(QUOTA_MB*1048576)*100);
     const groups=db.creators.filter(c=>filesOf(c.id).length);
@@ -706,6 +732,15 @@ document.addEventListener('click',async e=>{
       if(r.error){state.flash=niceError(r.error);try{await load();}catch(err){}render();}
       break;}
     case 'todoask':state.confirmTodo=v;render();break;
+    case 'listkind':state.listKind=v;state.confirmTodo=null;state.err={};render();break;
+    case 'listwho':state.listWho=v;render();break;
+    case 'showdone':state.showDone=!state.showDone;render();break;
+    case 'idea2todo':{
+      const x=state.todos.find(t=>t.id===v);if(!x)break;
+      x.kind='todo';x.created_at=new Date().toISOString();state.flash='Flyttet til «Gjøre».';render();
+      const r=await sb.from('todos').update({kind:'todo'}).eq('id',v);
+      if(r.error){state.flash=niceError(r.error);try{await load();}catch(err){}render();}
+      break;}
     case 'todonodel':state.confirmTodo=null;render();break;
     case 'tododel':{
       state.confirmTodo=null;const keep=state.todos;state.todos=state.todos.filter(t=>t.id!==v);render();
@@ -754,7 +789,7 @@ document.addEventListener('submit',async e=>{
       const text=(fd.text||'').trim();
       if(!text){const i=document.getElementById('todo-input');if(i)i.focus();break;}
       if(state.busy)break;state.busy=true;
-      const r=await sb.from('todos').insert({text}).select().single();
+      const r=await sb.from('todos').insert({text,kind:state.listKind==='idea'?'idea':'todo'}).select().single();
       state.busy=false;
       if(r.error){state.err={todo:niceError(r.error)};render();break;}
       state.todos=[r.data].concat(state.todos);state.todoFocus=true;render();break;
