@@ -138,6 +138,25 @@ hr{border:0;border-top:1px solid var(--line);margin:22px 0}
 .upbox.busy{display:block;text-align:left;cursor:default;border-style:solid;border-color:var(--line)}
 .upbox.busy b::before{content:""}
 .fname{word-break:break-all}
+.todo-form{display:flex;gap:8px;margin:14px 0 6px}
+.todo-form input{flex:1;min-width:0;font-size:16px}
+.todo-form .btn{flex:none}
+.todo-list{margin-top:6px}
+.todo{display:flex;align-items:flex-start;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.todo:last-child{border-bottom:0}
+.tick{flex:none;width:28px;height:28px;margin-top:1px;border:2px solid var(--ink);border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;position:relative}
+.tick::after{content:'';position:absolute;inset:-8px}
+.todo.is-done .tick{background:var(--ink)}
+.todo-t{flex:1;min-width:0}
+.todo-txt{font-size:15px;line-height:1.4;word-break:break-word}
+.todo.is-done .todo-txt{text-decoration:line-through;color:var(--muted)}
+.todo-meta{font-size:12px;color:var(--muted);margin-top:3px}
+.todo-x{flex:none;width:36px;height:36px;margin:-4px -6px 0 0;border:0;background:none;font-size:22px;line-height:1;color:#9a9a9a;cursor:pointer}
+.todo-x:hover{color:var(--bad)}
+.todo-ask{display:flex;gap:6px;flex:none}
+.todo-done summary{display:flex;justify-content:space-between;align-items:center;cursor:pointer;list-style:none}
+.todo-done summary::-webkit-details-marker{display:none}
+.todo-done[open] summary .muted{visibility:hidden}
 </style>
 </head>
 <body>
@@ -160,7 +179,7 @@ function initLang(){
   return /^(nb|nn|no)/.test(n)?'no':'en';
 }
 let db = { creators: [] };
-let state = { user: null, role: null, loading: true, busy: false, loginSent: null, tab: 'godkjenn', filter: 'alle', modal: null, flash: null, err: {}, upgrade: false, rejecting: null, payEdit: false, confirmDelete: null, fatal: null, lang: initLang(), files: [], upload: null, picking: 0, confirmFile: null };
+let state = { user: null, role: null, loading: true, busy: false, loginSent: null, tab: 'godkjenn', filter: 'alle', modal: null, flash: null, err: {}, upgrade: false, rejecting: null, payEdit: false, confirmDelete: null, fatal: null, lang: initLang(), files: [], upload: null, picking: 0, confirmFile: null, todos: [], todoFocus: false, confirmTodo: null };
 const MAX_MB = 50, QUOTA_MB = 1024, BUCKET = 'creator-files';
 
 /* ---------- hjelpere ---------- */
@@ -236,6 +255,19 @@ const fileName=p=>String(p).split('/').pop().replace(/^\d{10,}-/,'');
 const filesOf=cid=>state.files.filter(f=>f.path.split('/')[0]===cid);
 function safeName(n){const m=String(n||'video').match(/^(.*?)(\.[A-Za-z0-9]{1,5})?$/);const base=(m[1]||'video').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[æÆ]/g,'ae').replace(/[øØ]/g,'o').replace(/[åÅ]/g,'a').replace(/[^A-Za-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,60)||'video';return base+(m[2]||'').toLowerCase();}
 
+const WHO={'hei@cesarnoirblix.com':'Cesar','noahrafoss@gmail.com':'Noah'};
+const who=e=>WHO[(e||'').toLowerCase()]||(e||'').split('@')[0]||'?';
+const shortDate=d=>{try{return new Date(d).toLocaleDateString('nb-NO',{day:'numeric',month:'short'});}catch(e){return '';}};
+function todoRow(x){
+  const del=state.confirmTodo===x.id
+    ?`<span class="todo-ask"><button class="btn sm badfill" data-a="tododel" data-v="${x.id}">Slett</button><button class="btn sm ghost" data-a="todonodel">Avbryt</button></span>`
+    :`<button class="todo-x" data-a="todoask" data-v="${x.id}" aria-label="Slett">×</button>`;
+  return `<div class="todo${x.done?' is-done':''}">
+    <button class="tick" data-a="todotoggle" data-v="${x.id}" aria-pressed="${x.done}" aria-label="${x.done?'Marker som ikke gjort':'Marker som gjort'}">${x.done?'<svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#fff" stroke-width="2.2"><path d="M2.5 7.5l3 3 6-7"/></svg>':''}</button>
+    <div class="todo-t"><div class="todo-txt">${esc(x.text)}</div><div class="todo-meta">${esc(who(x.created_by))} · ${shortDate(x.created_at)}${x.done&&x.done_by?` · gjort av ${esc(who(x.done_by))}`:''}</div></div>
+    ${del}</div>`;
+}
+
 /* ---------- data ---------- */
 function mapDeal(r){return{id:r.id,creatorId:r.creator_id,type:r.type,product:r.product,videos:r.videos,amount:r.amount,currency:r.currency||'NOK',days:r.days,rights:r.rights,acceptedAt:r.accepted_at,productSent:r.product_sent,tracking:r.tracking||'',receivedAt:r.received_at,startOnAccept:r.start_on_accept,payMethod:r.pay_method,account:r.account,paid:r.paid,paidAt:r.paid_at,done:r.done,closed:r.closed,createdAt:r.created_at};}
 function mapVideo(r){return{id:r.id,dealId:r.deal_id,creatorId:r.creator_id,url:r.url,platform:r.platform,status:r.status,reason:r.reason||'',ad:r.ad,at:r.created_at};}
@@ -246,6 +278,7 @@ async function load(){
     sb.from('videos').select('*').order('created_at',{ascending:true})
   ]);
   const e=c.error||d.error||v.error; if(e)throw e;
+  if(state.role==='admin'){const tr=await sb.from('todos').select('*').order('created_at',{ascending:false});state.todos=tr.error?[]:tr.data;}
   const fr=await sb.rpc('list_files');
   state.files=fr.error?[]:(fr.data||[]).map(x=>({path:x.path,size:Number(x.size||0),type:x.mimetype||'',at:x.created_at}));
   const deals=d.data.map(mapDeal),videos=v.data.map(mapVideo);
@@ -491,7 +524,7 @@ function adminView(){
   const paidList=[];db.creators.forEach(c=>c.deals.forEach(d=>{if(d.paid)paidList.push({c,d});}));
   const paidSum=sumMoney(paidList);
   const readySum=sumMoney(ready);
-  const tabs=[['godkjenn','Til godkjenning',pending.length],['samarbeid','Samarbeid',0],['betaling','Betalinger',ready.length],['filer','Filer',0]];
+  const tabs=[['godkjenn','Til godkjenning',pending.length],['samarbeid','Samarbeid',0],['betaling','Betalinger',ready.length],['filer','Filer',0],['liste','Liste',state.todos.filter(x=>!x.done).length]];
   let body='';
   if(state.tab==='godkjenn'){
     body=`${toReview.length?`<div class="card soft"><h2>Ferdige gratis-samarbeid – vurder betalt</h2>${toReview.map(x=>`<div class="spread" style="padding:6px 0"><span><b>${esc(x.c.name)}</b> <span class="muted small">${esc(x.c.handle)} · ${x.k.approved}/${x.d.videos} videoer</span></span><button class="btn sm ghost" data-a="open" data-c="${x.c.id}">Åpne</button></div>`).join('')}</div>`:''}
@@ -510,6 +543,18 @@ function adminView(){
         <div><div class="small">${esc(x.d.product)}</div><div class="small muted">${x.d.type==='betalt'?money(x.d.amount,x.d.currency):'Gratis produkt'}${FINAL.includes(x.s.key)?'':' · frist '+esc(fristTxt(x.d))}</div></div>
         <div><div class="small"><b>${x.k.approved}/${x.d.videos}</b> videoer${x.k.pending?` · ${x.k.pending} venter`:''}</div><div class="mini"><i style="width:${Math.min(100,x.k.approved/x.d.videos*100)}%"></i></div></div>
         <div>${badge(x.s)}</div></button>`;}).join(''):'<p class="empty">Ingen i denne listen.</p>'}`;
+  } else if(state.tab==='liste'){
+    const open=state.todos.filter(x=>!x.done),done=state.todos.filter(x=>x.done).sort((a,b)=>String(b.done_at||'').localeCompare(String(a.done_at||'')));
+    body=`<div class="card">
+      <h2>Liste for Cesar og Noah</h2>
+      <p class="small muted" style="margin-top:0">Ideer og ting som må gjøres. Bare dere to ser denne.</p>
+      <form data-form="todo" class="todo-form" novalidate autocomplete="off">
+        <input name="text" id="todo-input" maxlength="500" placeholder="Skriv en idé eller noe som må gjøres …" aria-label="Ny oppgave">
+        <button class="btn" type="submit">Legg til</button>
+      </form>${errFor('todo')}
+      <div class="todo-list">${open.length?open.map(todoRow).join(''):'<p class="empty">Ingenting på lista. Skriv noe over.</p>'}</div>
+    </div>
+    ${done.length?`<details class="card soft todo-done"${state.todoDoneOpen?' open':''}><summary><b>Ferdig (${done.length})</b><span class="small muted">Vis</span></summary><div class="todo-list">${done.map(todoRow).join('')}</div></details>`:''}`;
   } else if(state.tab==='filer'){
     const used=state.files.reduce((a,f)=>a+f.size,0),pct=Math.min(100,used/(QUOTA_MB*1048576)*100);
     const groups=db.creators.filter(c=>filesOf(c.id).length);
@@ -623,7 +668,9 @@ function render(){
   else if(isAdmin()) html=adminView()+modalView();
   else html=creatorView();
   document.getElementById('app').innerHTML=html;
+  if(state.todoFocus){state.todoFocus=false;const i=document.getElementById('todo-input');if(i)i.focus();}
 }
+document.addEventListener('toggle',e=>{if(e.target.classList&&e.target.classList.contains('todo-done'))state.todoDoneOpen=e.target.open;},true);
 
 /* ---------- handlinger ---------- */
 function fail(key,msg){state.err={[key]:msg};render();return false;}
@@ -652,6 +699,19 @@ document.addEventListener('click',async e=>{
     case 'refresh':act(async()=>{},null);break;
     case 'tab':state.tab=v;state.flash=null;render();break;
     case 'filter':state.filter=v;render();break;
+    case 'todotoggle':{
+      const x=state.todos.find(t=>t.id===v);if(!x)break;
+      const nd=!x.done;Object.assign(x,{done:nd,done_at:nd?new Date().toISOString():null,done_by:nd?state.user:null});render();
+      const r=await sb.from('todos').update({done:x.done,done_at:x.done_at,done_by:x.done_by}).eq('id',v);
+      if(r.error){state.flash=niceError(r.error);try{await load();}catch(err){}render();}
+      break;}
+    case 'todoask':state.confirmTodo=v;render();break;
+    case 'todonodel':state.confirmTodo=null;render();break;
+    case 'tododel':{
+      state.confirmTodo=null;const keep=state.todos;state.todos=state.todos.filter(t=>t.id!==v);render();
+      const r=await sb.from('todos').delete().eq('id',v);
+      if(r.error){state.todos=keep;state.flash=niceError(r.error);render();}
+      break;}
     case 'open':Object.assign(state,{modal:{type:'creator',id:cid},upgrade:false,err:{},rejecting:null,confirmDelete:null});render();break;
     case 'new':state.modal={type:'new'};state.err={};render();break;
     case 'close':case 'closebg':Object.assign(state,{modal:null,upgrade:false,rejecting:null,confirmDelete:null,err:{}});render();break;
@@ -690,6 +750,15 @@ document.addEventListener('submit',async e=>{
   const f=e.target,fd=Object.fromEntries(new FormData(f));
   state.err={};
   switch(f.dataset.form){
+    case 'todo':{
+      const text=(fd.text||'').trim();
+      if(!text){const i=document.getElementById('todo-input');if(i)i.focus();break;}
+      if(state.busy)break;state.busy=true;
+      const r=await sb.from('todos').insert({text}).select().single();
+      state.busy=false;
+      if(r.error){state.err={todo:niceError(r.error)};render();break;}
+      state.todos=[r.data].concat(state.todos);state.todoFocus=true;render();break;
+    }
     case 'login':{
       const email=(fd.email||'').trim().toLowerCase();
       if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))return fail('login',t('Skriv en gyldig e-postadresse.','Enter a valid email address.'));
